@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Application } from 'pixi.js';
+  import { Application, type Ticker } from 'pixi.js';
 
   import { AudioClock } from './lib/audio/index.ts';
   import type { BundledChart, ImportedChart } from './lib/audio/types.ts';
@@ -32,7 +32,7 @@
   // Diagnostics, refreshed from the render loop.
   let hud = $state({
     positionMs: 0, scroll: 0, velocity: 1, drawn: 0, missed: 0,
-    fps: 0, frameMs: 0, worstMs: 0, longFrames: 0,
+    fps: 0, frameMs: 0, worstMs: 0, updateMs: 0, worstUpdateMs: 0, load: 0, longFrames: 0,
   });
 
   onMount(async () => {
@@ -128,32 +128,40 @@
     playing = false;
   }
 
-  function tick() {
-    // Measured before the early return so the counter sees every frame, not only the
-    // ones with something to draw.
-    frames.update(performance.now());
+  function tick(ticker: Ticker) {
+    // The frame period comes from the presentation clock, so scheduler jitter is not
+    // mistaken for a dropped frame. The work timer below uses the wall clock, because
+    // that is what actually elapses around the code being measured.
+    frames.update(ticker.lastTime);
+    const workStart = performance.now();
+
+    if (playable && playfield) {
+      const positionMs = clock.isRunning ? clock.positionMs() : 0;
+      const scroll = playable.scroll.positionAt(positionMs);
+
+      if (playing) {
+        // Retiring runs on time, never on screen position: a chart can hide notes
+        // entirely or freeze them in place, and both still have to be judged.
+        hud.missed += playable.retireExpired(positionMs, LATE_WINDOW_MS);
+      }
+
+      playfield.draw(playable, scroll);
+
+      hud.positionMs = positionMs;
+      hud.scroll = scroll;
+      hud.velocity = playable.scroll.velocityAt(positionMs);
+      hud.drawn = playfield.drawnCount;
+    }
+
+    frames.recordUpdate(performance.now() - workStart);
+
     hud.fps = frames.fps;
     hud.frameMs = frames.frameMs;
     hud.worstMs = frames.worstMs;
+    hud.updateMs = frames.updateMs;
+    hud.worstUpdateMs = frames.worstUpdateMs;
+    hud.load = frames.load;
     hud.longFrames = frames.longFrames;
-
-    if (!playable || !playfield) return;
-
-    const positionMs = clock.isRunning ? clock.positionMs() : 0;
-    const scroll = playable.scroll.positionAt(positionMs);
-
-    if (playing) {
-      // Retiring runs on time, never on screen position: a chart can hide notes
-      // entirely or freeze them in place, and both still have to be judged.
-      hud.missed += playable.retireExpired(positionMs, LATE_WINDOW_MS);
-    }
-
-    playfield.draw(playable, scroll);
-
-    hud.positionMs = positionMs;
-    hud.scroll = scroll;
-    hud.velocity = playable.scroll.velocityAt(positionMs);
-    hud.drawn = playfield.drawnCount;
   }
 
   function onKey(event: KeyboardEvent) {
@@ -186,7 +194,7 @@
   <label class="speed">
     speed
     <input type="range" min="250" max="1500" step="50" bind:value={travelMs}
-      oninput={() => playfield && (playfield = new Playfield(app!, { travelMs }))} />
+      oninput={() => playfield?.setTravelMs(travelMs)} />
     {travelMs} ms
   </label>
 
@@ -206,14 +214,19 @@
     <div class="rule"></div>
     <div>
       {hud.fps.toFixed(0)} fps
-      <span class="dim">· {hud.frameMs.toFixed(1)} ms</span>
+      <span class="dim">· frame {hud.frameMs.toFixed(1)} ms</span>
     </div>
-    <!-- The worst frame matters more than the average: a single long one is a visible
-         stutter, and the average hides it. -->
-    <div class:warn={hud.worstMs > 2 * frames.shortestFrameMs && frames.shortestFrameMs > 0}>
-      worst {hud.worstMs.toFixed(1)} ms
+    <!-- The frame period is pinned to the refresh rate by vsync, so it says nothing about
+         headroom. Time spent working does, and is what other games label as their frame
+         time. -->
+    <div class:warn={hud.load > 0.5}>
+      update {hud.updateMs.toFixed(2)} ms
+      <span class="dim">· {(hud.load * 100).toFixed(0)}% of budget</span>
     </div>
-    <div class:warn={hud.longFrames > 0}>long frames {hud.longFrames}</div>
+    <div class:warn={hud.worstUpdateMs > frames.displayPeriodMs && frames.displayPeriodMs > 0}>
+      worst update {hud.worstUpdateMs.toFixed(2)} ms
+    </div>
+    <div class:warn={hud.longFrames > 0}>dropped frames {hud.longFrames}</div>
   </div>
 {/if}
 

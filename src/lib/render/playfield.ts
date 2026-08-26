@@ -63,6 +63,17 @@ export class Playfield {
     app.stage.addChild(this.view);
   }
 
+  /**
+   * Changes the scroll speed in place.
+   *
+   * Rebuilding the playfield instead would leave the previous one's graphics attached to
+   * the stage, still drawing whatever they last drew, so old notes would pile up on
+   * screen as ghosts that no longer belong to any chart.
+   */
+  setTravelMs(travelMs: number): void {
+    this.options.travelMs = travelMs;
+  }
+
   /** Pixels per reference millisecond of scroll distance. */
   private get pixelsPerUnit(): number {
     return this.travelHeight / this.options.travelMs;
