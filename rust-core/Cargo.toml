@@ -3,6 +3,10 @@ name = "rust-core"
 version = "0.1.0"
 edition = "2024"
 
+# Built as a Node native addon, loaded by the Electron main process.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 cpal = "0.18.2"
 napi = { version = "3.12.2", default-features = false, features = ["napi4"] }

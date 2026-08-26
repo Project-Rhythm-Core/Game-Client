@@ -1,14 +1,19 @@
 {
   "name": "rust-core",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native audio engine for the Project Rhythm Core game client",
+  "main": "rust-core.node",
+  "types": "index.d.ts",
+  "type": "commonjs",
+  "napi": {
+    "binaryName": "rust-core"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "build": "napi build --release --output-dir .",
+    "build:debug": "napi build --output-dir .",
+    "test": "cargo test"
+  },
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -17,7 +22,6 @@
     }
   },
   "packageManager": "pnpm@11.23.0",
-  "type": "module",
   "devDependencies": {
     "@napi-rs/cli": "^3.8.6"
   }

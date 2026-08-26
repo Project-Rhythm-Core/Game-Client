@@ -25,3 +25,5 @@ dist-ssr
 
 # rust-core
 rust-core/target/
+# Native addon build output: platform-specific, rebuilt with `pnpm run build:native`.
+rust-core/*.node
