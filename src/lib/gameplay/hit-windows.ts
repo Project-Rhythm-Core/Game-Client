@@ -16,6 +16,24 @@ export type Judgement = 'perfect' | 'great' | 'good' | 'ok' | 'meh' | 'miss';
 export const JUDGEMENTS: readonly Judgement[] = ['perfect', 'great', 'good', 'ok', 'meh', 'miss'];
 
 /**
+ * What each judgement is called on screen.
+ *
+ * The identifiers above are osu's internal `HitResult` names, which are shared across
+ * every one of its rulesets and read a whole step too generous in mania: the result osu
+ * calls GREAT is the one a mania player and every mania skin call PERFECT. The names here
+ * are the ones the reference skin prints on its own judgement graphics, so the text the
+ * game shows when a skin ships none agrees with the images when it does.
+ */
+export const JUDGEMENT_LABELS: Readonly<Record<Judgement, string>> = {
+  perfect: 'max',
+  great: 'perfect',
+  good: 'great',
+  ok: 'good',
+  meh: 'bad',
+  miss: 'miss',
+};
+
+/**
  * Accuracy weight of each judgement, and the divisor a perfect play would reach.
  *
  * ScoreV2 raises PERFECT above GREAT — under ScoreV1 the two are worth the same, so an

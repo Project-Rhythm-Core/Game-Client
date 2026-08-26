@@ -14,8 +14,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::model::{
-    ColumnStyle, FORMAT_VERSION, Layout, SkinManifest, SkinOrigin, SkinProvides, SoundBank, Stage,
-    Theme,
+    ColumnStyle, FORMAT_VERSION, Fonts, Layout, SkinManifest, SkinOrigin, SkinProvides, SoundBank,
+    Stage, TEXTURE_SPACE_HEIGHT, Theme, VIRTUAL_HEIGHT,
 };
 
 /// Sample sets a chart can name.
@@ -155,7 +155,7 @@ fn count_textures(theme: &Theme) -> usize {
 fn build_theme(source: &Path, output: &Path) -> Result<Theme, String> {
     let sections = read_mania_sections(source);
     if sections.is_empty() {
-        return Ok(Theme::new(BTreeMap::new(), Vec::new()));
+        return Ok(Theme::new(BTreeMap::new(), Vec::new(), Fonts::default()));
     }
 
     let assets_dir = output.join("assets").join("osu");
@@ -190,6 +190,27 @@ fn build_theme(source: &Path, output: &Path) -> Result<Theme, String> {
         }
     }
 
+    // Bitmap digits, for counters the skin would rather draw than have written in text.
+    let fonts_section = read_named_section(source, "[Fonts]");
+    let combo_prefix = fonts_section
+        .get("comboprefix")
+        .cloned()
+        .unwrap_or_else(|| "combo".to_string());
+    let combo: Vec<String> = (0..=9)
+        .map(|digit| take(&format!("{combo_prefix}-{digit}"), false))
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+    let fonts = Fonts {
+        combo,
+        // Stated in texture pixels like every other measurement in the file.
+        combo_overlap: fonts_section
+            .get("combooverlap")
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .unwrap_or(0.0)
+            * VIRTUAL_HEIGHT
+            / TEXTURE_SPACE_HEIGHT,
+    };
+
     let mut layouts = Vec::new();
     for section in sections {
         let keys = section.keys as usize;
@@ -197,26 +218,60 @@ fn build_theme(source: &Path, output: &Path) -> Result<Theme, String> {
             continue;
         }
 
-        let weights = width_weights(section.settings.get("columnwidth"), keys);
+        let widths = numbers(section.settings.get("columnwidth"), keys, DEFAULT_COLUMN_WIDTH);
+        // One more line than there are columns: the edges count.
+        let line_widths = numbers(section.settings.get("columnlinewidth"), keys + 1, 0.0);
+        let hit_position = section
+            .settings
+            .get("hitposition")
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .unwrap_or(DEFAULT_HIT_POSITION);
+
         let mut columns = Vec::with_capacity(keys);
 
         for index in 0..keys {
-            let get = |suffix: &str| section.settings.get(&format!("noteimage{index}{suffix}"));
+            // Declared images win; otherwise the conventional name for this column.
+            let default_stem = default_note_image(index, keys);
+            let get = |suffix: &str| -> String {
+                section
+                    .settings
+                    .get(&format!("noteimage{index}{suffix}"))
+                    .cloned()
+                    .unwrap_or_else(|| format!("{default_stem}{}", suffix.to_uppercase()))
+            };
+
+            // osu falls back down a chain rather than leaving a piece undrawn: a missing
+            // head becomes the plain note, and a missing tail becomes the head, then the
+            // note. Skins lean on this — the reference o2jam skin ships no tail at all.
+            let key_reference = section
+                .settings
+                .get(&format!("keyimage{index}"))
+                .cloned()
+                .unwrap_or_else(|| format!("mania-key{}", key_image_index(index, keys)));
+
+            let note = take(&get(""), false);
+            let head = take(&get("h"), false).or_else(|| note.clone());
+            let declared_tail = take(&get("t"), false);
+            let tail_flipped = declared_tail.is_none();
+            let tail = declared_tail.or_else(|| head.clone());
 
             columns.push(ColumnStyle {
-                width_weight: weights[index],
-                note: get("").and_then(|r| take(r, false)),
-                head: get("h").and_then(|r| take(r, false)),
-                body: get("l").and_then(|r| take(r, true)),
-                tail: get("t").and_then(|r| take(r, false)),
-                key: section
-                    .settings
-                    .get(&format!("keyimage{index}"))
-                    .and_then(|r| take(r, false)),
-                key_pressed: section
-                    .settings
-                    .get(&format!("keyimage{index}d"))
-                    .and_then(|r| take(r, false)),
+                width: widths[index],
+                note,
+                head,
+                body: take(&get("l"), true),
+                tail,
+                tail_flipped,
+                key: take(&key_reference, false),
+                key_height: virtual_height(source, &key_reference),
+                key_pressed: take(
+                    section
+                        .settings
+                        .get(&format!("keyimage{index}d"))
+                        .map(String::as_str)
+                        .unwrap_or(&format!("mania-key{}D", key_image_index(index, keys))),
+                    false,
+                ),
                 colour: section
                     .settings
                     .get(&format!("colour{}", index + 1))
@@ -224,16 +279,38 @@ fn build_theme(source: &Path, output: &Path) -> Result<Theme, String> {
             });
         }
 
+        // Stage pieces are conventional too: skins ship `mania-stage-hint` and never
+        // mention it. Leaving them out is what left the judgement line as a bare stroke.
+        let stage_reference = |key: &str, default: &str| -> String {
+            section.settings.get(key).cloned().unwrap_or_else(|| default.to_string())
+        };
+        let hint_reference = stage_reference("stagehint", "mania-stage-hint");
+
         let stage = Stage {
-            left: section.settings.get("stageleft").and_then(|r| take(r, false)),
-            right: section.settings.get("stageright").and_then(|r| take(r, false)),
-            hint: section.settings.get("stagehint").and_then(|r| take(r, false)),
-            light: section.settings.get("stagelight").and_then(|r| take(r, false)),
+            left: take(&stage_reference("stageleft", "mania-stage-left"), false),
+            right: take(&stage_reference("stageright", "mania-stage-right"), false),
+            hint: take(&hint_reference, false),
+            hint_height: virtual_height(source, &hint_reference).map(|h| h * HIT_TARGET_STRETCH),
+            light: take(&stage_reference("stagelight", "mania-stage-light"), false),
         };
 
         layouts.push(Layout {
             keys: section.keys,
+            hit_position,
+            line_widths,
             columns,
+            combo_position: section
+                .settings
+                .get("comboposition")
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .unwrap_or(DEFAULT_COMBO_POSITION),
+            score_position: section
+                .settings
+                .get("scoreposition")
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .unwrap_or(DEFAULT_SCORE_POSITION),
+            keys_under_notes: flag(section.settings.get("keysundernotes"), false),
+            judgement_line: flag(section.settings.get("judgementline"), true),
             stage,
         });
     }
@@ -241,7 +318,7 @@ fn build_theme(source: &Path, output: &Path) -> Result<Theme, String> {
     layouts.sort_by_key(|layout| layout.keys);
     layouts.dedup_by_key(|layout| layout.keys);
 
-    Ok(Theme::new(judgements, layouts))
+    Ok(Theme::new(judgements, layouts, fonts))
 }
 
 /// Reads a package's manifest back.
@@ -343,6 +420,11 @@ fn collect_sounds(source: &Path, sounds_dir: &Path) -> Result<BTreeMap<String, S
 
 /// Reads `[General]` as lowercase keys, tolerating everything real skins do.
 fn read_general_section(source: &Path) -> BTreeMap<String, String> {
+    read_named_section(source, "[General]")
+}
+
+/// Reads one named top-level section of `skin.ini`.
+fn read_named_section(source: &Path, wanted: &str) -> BTreeMap<String, String> {
     let mut settings = BTreeMap::new();
 
     let Ok(text) = fs::read_to_string(source.join("skin.ini")) else {
@@ -358,7 +440,7 @@ fn read_general_section(source: &Path) -> BTreeMap<String, String> {
         }
 
         if line.starts_with('[') {
-            in_general = line.eq_ignore_ascii_case("[General]");
+            in_general = line.eq_ignore_ascii_case(wanted);
             continue;
         }
 
@@ -577,6 +659,108 @@ mod tests {
         let bank = read_sound_bank(out.to_str().unwrap()).unwrap();
         assert!(bank["drum-hitfinish"].ends_with("assets/sounds/drum-hitfinish.wav"));
     }
+
+    #[test]
+    fn columns_take_the_conventional_names_when_the_skin_declares_none() {
+        // The middle of an odd stage is special; the rest alternate outward from the edges.
+        assert_eq!(
+            (0..4).map(|c| default_note_image(c, 4)).collect::<Vec<_>>(),
+            ["mania-note1", "mania-note2", "mania-note2", "mania-note1"]
+        );
+        assert_eq!(
+            (0..7).map(|c| default_note_image(c, 7)).collect::<Vec<_>>(),
+            [
+                "mania-note1",
+                "mania-note2",
+                "mania-note1",
+                "mania-noteS",
+                "mania-note1",
+                "mania-note2",
+                "mania-note1"
+            ]
+        );
+        // An even stage has no special column however wide its outer lane is drawn.
+        assert!(!(0..8).any(|c| default_note_image(c, 8) == "mania-noteS"));
+    }
+
+    #[test]
+    fn an_animated_image_resolves_to_its_first_frame() {
+        let folder = temp("animated");
+        fs::write(folder.join("mania-note1L-0.png"), []).unwrap();
+
+        assert_eq!(
+            resolve_image(&folder, "mania-note1L").unwrap().file_name().unwrap(),
+            "mania-note1L-0.png"
+        );
+    }
+
+    #[test]
+    fn a_still_image_is_preferred_over_an_animation_of_the_same_name() {
+        let folder = temp("still-over-animated");
+        fs::write(folder.join("mania-note1L.png"), []).unwrap();
+        fs::write(folder.join("mania-note1L-0.png"), []).unwrap();
+
+        assert_eq!(
+            resolve_image(&folder, "mania-note1L").unwrap().file_name().unwrap(),
+            "mania-note1L.png"
+        );
+    }
+
+    #[test]
+    fn a_texture_is_measured_in_the_space_it_was_authored_for() {
+        let folder = temp("virtual-height");
+        // 154 pixels of a 768-unit stage is 96.25 of a 480-unit one, which is what makes
+        // the reference skin's receptor reach exactly from its hit position to the foot.
+        image::RgbaImage::new(75, 154).save(folder.join("mania-key1.png")).unwrap();
+        assert_eq!(virtual_height(&folder, "mania-key1"), Some(96.25));
+
+        // A @2x variant is the same artwork at twice the resolution, not twice the size.
+        image::RgbaImage::new(150, 308).save(folder.join("mania-key2@2x.png")).unwrap();
+        assert_eq!(virtual_height(&folder, "mania-key2"), Some(96.25));
+    }
+
+    #[test]
+    fn stage_pieces_are_found_without_being_declared() {
+        let source = temp("stage-defaults");
+        fs::write(source.join("skin.ini"), "[Mania]\nKeys: 4\n").unwrap();
+        image::RgbaImage::new(210, 25).save(source.join("mania-stage-hint.png")).unwrap();
+
+        let output = temp("stage-defaults-out");
+        import(source.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+
+        let theme: Theme =
+            serde_norway::from_str(&fs::read_to_string(output.join("osu.yaml")).unwrap()).unwrap();
+        let stage = &theme.layouts[0].stage;
+
+        assert!(stage.hint.is_some(), "a skin that ships a judgement line but never names it");
+        assert!(stage.hint_height.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn a_combo_font_needs_all_ten_digits() {
+        let source = temp("combo-partial");
+        fs::write(source.join("skin.ini"), "[Mania]\nKeys: 4\n").unwrap();
+        for digit in 0..9 {
+            image::RgbaImage::new(30, 40)
+                .save(source.join(format!("combo-{digit}.png")))
+                .unwrap();
+        }
+
+        let output = temp("combo-partial-out");
+        import(source.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+        let theme: Theme =
+            serde_norway::from_str(&fs::read_to_string(output.join("osu.yaml")).unwrap()).unwrap();
+
+        assert!(theme.fonts.combo.is_empty(), "nine digits cannot draw every number");
+
+        image::RgbaImage::new(30, 40).save(source.join("combo-9.png")).unwrap();
+        let output = temp("combo-full-out");
+        import(source.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+        let theme: Theme =
+            serde_norway::from_str(&fs::read_to_string(output.join("osu.yaml")).unwrap()).unwrap();
+
+        assert_eq!(theme.fonts.combo.len(), 10);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -601,6 +785,30 @@ const VISIBLE_ALPHA: u8 = 8;
 
 /// Extensions to try for an image reference, which skins routinely write without one.
 const IMAGE_EXTENSIONS: [&str; 3] = ["png", "jpg", "jpeg"];
+
+/// The default image a column uses when the skin declares none.
+///
+/// Skins are not obliged to name their note images: osu falls back to conventional
+/// filenames, and a skin that only wants the defaults simply ships them and says nothing.
+/// One of the reference skins does exactly that, so without this it imports with no note
+/// textures at all.
+///
+/// Which of the three a column gets follows osu's own rule. The middle column of an odd
+/// stage is special; the rest alternate outward from the edges. That the reference skin's
+/// own lane widths reproduce this pattern exactly — `121S121` for seven keys — is a
+/// useful confirmation it is right.
+fn default_note_image(column: usize, keys: usize) -> &'static str {
+    if keys % 2 == 1 && column == keys / 2 {
+        return "mania-noteS";
+    }
+
+    let distance_from_edge = column.min(keys.saturating_sub(1) - column);
+    if distance_from_edge % 2 == 0 {
+        "mania-note1"
+    } else {
+        "mania-note2"
+    }
+}
 
 /// Judgement image keys, paired with the game's own judgement names.
 const JUDGEMENT_KEYS: [(&str, &str); 6] = [
@@ -695,6 +903,19 @@ fn resolve_image(source: &Path, reference: &str) -> Option<PathBuf> {
         }
     }
 
+    // An animated image has no file under its own name at all, only numbered frames.
+    // The reference o2jam skin ships six frames per hold body and nothing else, so
+    // without this its long notes resolve to nothing. Only the first frame is taken:
+    // the format has no way to describe an animation yet, and a still body is very much
+    // better than an invisible one.
+    for extension in IMAGE_EXTENSIONS {
+        for candidate in [format!("{stem}-0@2x.{extension}"), format!("{stem}-0.{extension}")] {
+            if let Some(path) = index.get(&candidate) {
+                return Some(path.clone());
+            }
+        }
+    }
+
     index.get(&stem).cloned()
 }
 
@@ -770,6 +991,55 @@ fn body_strip(image: &image::DynamicImage) -> Option<image::DynamicImage> {
     Some(image.crop_imm(0, last + 1 - kept, width, kept))
 }
 
+/// Receptor images follow the same three-way split as notes, numbered from one.
+fn key_image_index(column: usize, keys: usize) -> &'static str {
+    match default_note_image(column, keys) {
+        "mania-noteS" => "S",
+        "mania-note2" => "2",
+        _ => "1",
+    }
+}
+
+/// How much taller than its own texture osu draws the judgement line graphic.
+///
+/// A constant with no explanation in osu either — `0.9f * 1.6025f` in `LegacyHitTarget`.
+/// The graphic is centred on the hit position rather than resting above or below it.
+const HIT_TARGET_STRETCH: f64 = 0.9 * 1.6025;
+
+/// Where the combo counter sits when the skin does not say, in virtual units from the top.
+const DEFAULT_COMBO_POSITION: f64 = 111.0;
+
+/// Where the judgement graphic sits when the skin does not say.
+///
+/// osu reaches the same height by two different routes depending on whether the value is
+/// above or below half the hit position, but both land at this many units from the top.
+const DEFAULT_SCORE_POSITION: f64 = 300.0;
+
+/// The height a texture is drawn at, in virtual units, before any lane scaling.
+///
+/// Legacy textures are authored against a 768-unit stage, and a `@2x` variant doubles
+/// that again, so the file's own pixel height is never the answer on its own.
+fn virtual_height(source: &Path, reference: &str) -> Option<f64> {
+    let path = resolve_image(source, reference)?;
+    let (_, pixels) = image::image_dimensions(&path).ok()?;
+
+    let doubled = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|stem| stem.to_lowercase().ends_with("@2x"));
+
+    let authored = f64::from(pixels) / if doubled { 2.0 } else { 1.0 };
+    Some(authored * VIRTUAL_HEIGHT / TEXTURE_SPACE_HEIGHT)
+}
+
+/// Reads an on/off setting, which skins write as `1`/`0` and occasionally as a word.
+fn flag(value: Option<&String>, default: bool) -> bool {
+    match value.map(|v| v.trim().to_lowercase()) {
+        Some(text) => text == "1" || text == "true",
+        None => default,
+    }
+}
+
 /// Turns `r,g,b[,a]` into `#rrggbbaa`.
 fn parse_colour(value: &str) -> Option<String> {
     let parts: Vec<u8> = value
@@ -787,22 +1057,21 @@ fn parse_colour(value: &str) -> Option<String> {
     }
 }
 
-/// Comma-separated widths, normalised so the mean lane is `1.0`.
-fn width_weights(value: Option<&String>, keys: usize) -> Vec<f64> {
-    let widths: Vec<f64> = value
+/// osu's own defaults, for the settings a skin leaves out.
+const DEFAULT_COLUMN_WIDTH: f64 = 30.0;
+const DEFAULT_HIT_POSITION: f64 = 402.0;
+
+/// Reads a comma-separated list of numbers, padded to `count`.
+///
+/// Short lists are normal: a skin may give one width for a layout with several columns,
+/// and repeating the last value is what osu does rather than refusing the section.
+fn numbers(value: Option<&String>, count: usize, fallback: f64) -> Vec<f64> {
+    let parsed: Vec<f64> = value
         .map(|v| v.split(',').filter_map(|p| p.trim().parse::<f64>().ok()).collect())
         .unwrap_or_default();
 
-    if widths.is_empty() {
-        return vec![1.0; keys];
-    }
-
-    let mean = widths.iter().sum::<f64>() / widths.len() as f64;
-    if mean <= 0.0 {
-        return vec![1.0; keys];
-    }
-
-    (0..keys)
-        .map(|i| ((widths.get(i).copied().unwrap_or(mean) / mean) * 1000.0).round() / 1000.0)
+    let last = parsed.last().copied().unwrap_or(fallback);
+    (0..count)
+        .map(|i| parsed.get(i).copied().unwrap_or(last))
         .collect()
 }

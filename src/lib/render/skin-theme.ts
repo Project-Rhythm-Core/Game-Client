@@ -11,44 +11,131 @@ import { Assets, Texture } from 'pixi.js';
 /** Base of every skin asset URL. One host for now, meaning "whichever skin is active". */
 const SKIN_ORIGIN = 'skin://active/';
 
+/**
+ * Height every measurement in a layout is expressed against.
+ *
+ * A layout stores virtual units rather than pixels, so the same numbers describe the
+ * stage at any window size: multiply by `screenHeight / VIRTUAL_HEIGHT` and the whole
+ * playfield scales together.
+ */
+export const VIRTUAL_HEIGHT = 480;
+
+/** Where the combo counter sits when the skin does not say, in virtual units. */
+const DEFAULT_COMBO_POSITION = 111;
+
+/** Where the judgement graphic sits when the skin does not say. */
+const DEFAULT_SCORE_POSITION = 300;
+
 export interface ColumnTextures {
-  /** Width relative to the mean lane of this layout. `1.0` is even. */
-  widthWeight: number;
+  /** Lane width in virtual units. */
+  width: number;
   note?: Texture;
   head?: Texture;
   /** Tiled down the note. Skins ship a short strip meant to repeat. */
   body?: Texture;
   tail?: Texture;
+  /** Whether the tail must be drawn upside down, because it is really the head. */
+  tailFlipped?: boolean;
+  /** The receptor, drawn at the foot of the lane. */
+  key?: Texture;
+  keyPressed?: Texture;
+  /**
+   * Receptor height in virtual units.
+   *
+   * A receptor stretches across its lane but keeps its authored height, so unlike a note
+   * its size is not recoverable from the texture and the lane alone.
+   */
+  keyHeight?: number;
   /** Lane tint as a Pixi colour, when the skin sets one. */
   colour?: number;
 }
 
 interface RawColumn {
-  widthWeight: number;
+  width: number;
   note?: string;
   head?: string;
   body?: string;
   tail?: string;
+  tailFlipped?: boolean;
+  key?: string;
+  keyPressed?: string;
+  keyHeight?: number;
   colour?: string;
+}
+
+interface RawStage {
+  hint?: string;
+  hintHeight?: number;
 }
 
 interface RawLayout {
   keys: number;
+  hitPosition: number;
+  lineWidths?: number[];
   columns: RawColumn[];
+  comboPosition?: number;
+  scorePosition?: number;
+  keysUnderNotes?: boolean;
+  judgementLine?: boolean;
+  stage?: RawStage;
+}
+
+/** A key count's stage, in virtual units. */
+export interface Layout {
+  /** Where the judgement line sits, in virtual units from the top. */
+  hitPosition: number;
+  /** Separator widths, one per lane edge — one more than there are columns. */
+  lineWidths: number[];
+  columns: ColumnTextures[];
+  /** Where the combo counter sits, in virtual units from the top. */
+  comboPosition: number;
+  /** Where the judgement graphic sits, in virtual units from the top. */
+  scorePosition: number;
+  /** Whether the receptors are drawn behind the notes instead of over them. */
+  keysUnderNotes: boolean;
+  /** Whether to draw a plain line across the hit position. Skins with their own turn it off. */
+  judgementLine: boolean;
+  /** The judgement line graphic, centred on the hit position. */
+  hint?: Texture;
+  /** Its drawn height in virtual units, which is not its texture height. */
+  hintHeight?: number;
+}
+
+/** Bitmap digits `0` through `9`, with how far each is drawn over the one before it. */
+export interface DigitFont {
+  digits: Texture[];
+  overlap: number;
+}
+
+interface RawFonts {
+  combo?: string[];
+  comboOverlap?: number;
 }
 
 interface RawTheme {
   judgements: Record<string, string>;
   layouts: RawLayout[];
+  fonts?: RawFonts;
 }
 
 export class SkinTheme {
   readonly name: string;
-  private readonly layouts = new Map<number, ColumnTextures[]>();
+  /** The combo font, when the skin ships a full set of ten digits. */
+  readonly comboFont: DigitFont | null;
+  /** Judgement graphics, keyed by the game's own judgement names. */
+  readonly judgements: ReadonlyMap<string, Texture>;
+  private readonly layouts = new Map<number, Layout>();
 
-  private constructor(name: string, layouts: Map<number, ColumnTextures[]>) {
+  private constructor(
+    name: string,
+    layouts: Map<number, Layout>,
+    comboFont: DigitFont | null,
+    judgements: Map<string, Texture>,
+  ) {
     this.name = name;
     this.layouts = layouts;
+    this.comboFont = comboFont;
+    this.judgements = judgements;
   }
 
   /**
@@ -67,11 +154,21 @@ export class SkinTheme {
     const paths = new Set<string>();
     for (const layout of theme.layouts) {
       for (const column of layout.columns) {
-        for (const path of [column.note, column.head, column.body, column.tail]) {
+        for (const path of [
+          column.note,
+          column.head,
+          column.body,
+          column.tail,
+          column.key,
+          column.keyPressed,
+        ]) {
           if (path) paths.add(path);
         }
       }
+      if (layout.stage?.hint) paths.add(layout.stage.hint);
     }
+    for (const path of theme.fonts?.combo ?? []) paths.add(path);
+    for (const path of Object.values(theme.judgements ?? {})) paths.add(path);
 
     const textures = new Map<string, Texture>();
     await Promise.all(
@@ -85,26 +182,51 @@ export class SkinTheme {
       }),
     );
 
-    const layouts = new Map<number, ColumnTextures[]>();
+    const layouts = new Map<number, Layout>();
     for (const layout of theme.layouts) {
-      layouts.set(
-        layout.keys,
-        layout.columns.map((column) => ({
-          widthWeight: column.widthWeight || 1,
+      layouts.set(layout.keys, {
+        hitPosition: layout.hitPosition,
+        lineWidths: layout.lineWidths ?? [],
+        comboPosition: layout.comboPosition ?? DEFAULT_COMBO_POSITION,
+        scorePosition: layout.scorePosition ?? DEFAULT_SCORE_POSITION,
+        keysUnderNotes: layout.keysUnderNotes ?? false,
+        judgementLine: layout.judgementLine ?? true,
+        hint: layout.stage?.hint ? textures.get(layout.stage.hint) : undefined,
+        hintHeight: layout.stage?.hintHeight,
+        columns: layout.columns.map((column) => ({
+          width: column.width,
           note: column.note ? textures.get(column.note) : undefined,
           head: column.head ? textures.get(column.head) : undefined,
           body: column.body ? textures.get(column.body) : undefined,
           tail: column.tail ? textures.get(column.tail) : undefined,
+          tailFlipped: column.tailFlipped ?? false,
+          key: column.key ? textures.get(column.key) : undefined,
+          keyPressed: column.keyPressed ? textures.get(column.keyPressed) : undefined,
+          keyHeight: column.keyHeight,
           colour: parseColour(column.colour),
         })),
-      );
+      });
     }
 
-    return new SkinTheme(active.name, layouts);
+    // All ten or none: a partial set would draw some numbers and silently swallow others.
+    const comboPaths = theme.fonts?.combo ?? [];
+    const comboDigits = comboPaths.map((path) => textures.get(path));
+    const comboFont =
+      comboDigits.length === 10 && comboDigits.every((texture) => texture !== undefined)
+        ? { digits: comboDigits as Texture[], overlap: theme.fonts?.comboOverlap ?? 0 }
+        : null;
+
+    const judgements = new Map<string, Texture>();
+    for (const [name, path] of Object.entries(theme.judgements ?? {})) {
+      const texture = textures.get(path);
+      if (texture) judgements.set(name, texture);
+    }
+
+    return new SkinTheme(active.name, layouts, comboFont, judgements);
   }
 
-  /** Styling for a key count, or `null` when the skin does not cover it. */
-  layoutFor(keys: number): ColumnTextures[] | null {
+  /** The stage for a key count, or `null` when the skin does not cover it. */
+  layoutFor(keys: number): Layout | null {
     return this.layouts.get(keys) ?? null;
   }
 }

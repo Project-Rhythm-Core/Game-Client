@@ -5,7 +5,14 @@
   import { AudioClock, SystemClock, type PlaybackClock } from './lib/audio/index.ts';
   import type { BundledChart, ImportedChart } from './lib/audio/types.ts';
   import { PlayableChart } from './lib/chart/playable-chart.ts';
-  import { ColumnInput, JUDGEMENTS, ManiaJudge, defaultLayout, unstableRate } from './lib/gameplay/index.ts';
+  import {
+    ColumnInput,
+    JUDGEMENT_LABELS,
+    JUDGEMENTS,
+    ManiaJudge,
+    defaultLayout,
+    unstableRate,
+  } from './lib/gameplay/index.ts';
   import type { Judgement } from './lib/gameplay/index.ts';
   import { FrameCounter, Playfield, SkinTheme } from './lib/render/index.ts';
 
@@ -102,6 +109,37 @@
   let playing = $state(false);
   let constantVelocity = $state(false);
   let travelMs = $state(700);
+
+  /**
+   * Player calibration, in milliseconds. Positive means the audio is heard late, so the
+   * clock is pulled back to match.
+   *
+   * Every rhythm game has one of these and none of them can engineer it away — osu ships
+   * a hard-coded 15 ms platform offset on Windows with a comment saying they do not know
+   * why it is needed.
+   */
+  let audioOffsetMs = $state(0);
+
+  /**
+   * How far ahead of the clock to draw, in frames.
+   *
+   * A frame computed now is presented at the next vsync, so drawing at the current audio
+   * position puts every note one refresh period behind the sound — 7 ms at 144 Hz, 17 ms
+   * at 60 Hz. Judgement must not be shifted with it: it is about when a sound happened,
+   * not about when a picture appeared.
+   */
+  let visualLeadFrames = $state(1);
+
+  /**
+   * Time the chart against the wall clock instead of the audio device.
+   *
+   * A diagnostic, not a mode. beatoraja runs its whole game on `System.nanoTime()` and
+   * nothing else, which it gets away with because BMS is keysounded: there is no long
+   * track to drift against. If a chart feels the same either way here, the audio anchor
+   * is not what is off; if the wall clock feels better, the anchor is out by a constant
+   * and the fix is calibration rather than engineering.
+   */
+  let useWallClock = $state(false);
 
   // Diagnostics, refreshed from the render loop.
   let hud = $state({
@@ -219,9 +257,21 @@
       // The tally is per attempt: hitches from loading say nothing about this run.
       frames.reset();
 
-      if (silent) systemClock.start();
-      else if (playing) await audioClock.restart();
-      else await audioClock.play();
+      if (useWallClock) {
+        // The audio still plays; only what the game is timed against changes. Starting
+        // from the audio's own position matters: `play()` does not return until the
+        // first sample is audible, so starting from zero would put the wall clock
+        // behind by however long that took and pass it off as drift.
+        if (playing) await audioClock.restart();
+        else await audioClock.play();
+        systemClock.start(audioClock.positionMs());
+      } else if (silent) {
+        systemClock.start();
+      } else if (playing) {
+        await audioClock.restart();
+      } else {
+        await audioClock.play();
+      }
 
       playing = true;
       status = silent ? 'playing (silent)' : 'playing';
@@ -246,8 +296,13 @@
     const workStart = performance.now();
 
     if (playable && playfield) {
-      const positionMs = clock.isRunning ? clock.positionMs() : 0;
-      const scroll = playable.scroll.positionAt(positionMs);
+      // Judgement runs on audio time; drawing runs on the time this frame will be seen.
+      // Sharing one value between them builds a mismatch into the game whose size is the
+      // player's refresh rate.
+      const source = useWallClock && !silent ? systemClock : clock;
+      const positionMs = source.isRunning ? source.positionMs() : 0;
+      const visualMs = positionMs + visualLeadFrames * frames.displayPeriodMs;
+      const scroll = playable.scroll.positionAt(visualMs);
 
       if (playing && judge) {
         // Writing off expired notes runs on time, never on screen position: a chart can
@@ -263,10 +318,15 @@
 
       playfield.drawReceptors(playable, (column) => input.isHeld(column), workStart);
       playfield.draw(playable, scroll);
+      playfield.drawCombo(judge?.combo ?? 0);
+      playfield.drawJudgement(
+        lastJudgement?.judgement ?? null,
+        lastJudgement ? workStart - lastJudgementAt : Infinity,
+      );
 
       hud.positionMs = positionMs;
       hud.scroll = scroll;
-      hud.velocity = playable.scroll.velocityAt(positionMs);
+      hud.velocity = playable.scroll.velocityAt(visualMs);
       hud.drawn = playfield.drawnCount;
 
       if (lastJudgement && performance.now() - lastJudgementAt > JUDGEMENT_FLASH_MS) {
@@ -319,6 +379,24 @@
     no SV
   </label>
 
+  <label title="Time the chart against the wall clock instead of the audio device">
+    <input type="checkbox" bind:checked={useWallClock} />
+    wall clock
+  </label>
+
+  <label class="speed">
+    offset
+    <input type="range" min="-100" max="100" step="1" bind:value={audioOffsetMs}
+      oninput={() => void window.electronAPI.audio.setOffsetMs(audioOffsetMs)} />
+    {audioOffsetMs > 0 ? '+' : ''}{audioOffsetMs} ms
+  </label>
+
+  <label class="speed">
+    lead
+    <input type="range" min="0" max="3" step="1" bind:value={visualLeadFrames} />
+    {visualLeadFrames}f
+  </label>
+
   <label class="speed">
     speed
     <input type="range" min="250" max="1500" step="50" bind:value={travelMs}
@@ -344,12 +422,17 @@
     <div>{(hud.accuracy * 100).toFixed(2)}% · {hud.combo}x <span class="dim">(max {hud.maxCombo})</span></div>
     <div class="dim">UR {hud.unstableRate.toFixed(1)}</div>
     {#each JUDGEMENTS as judgement (judgement)}
-      <div class="tally"><span class="j j-{judgement}">{judgement}</span> {hud.counts[judgement]}</div>
+      <div class="tally">
+        <span class="j j-{judgement}">{JUDGEMENT_LABELS[judgement]}</span> {hud.counts[judgement]}
+      </div>
     {/each}
     {#if silent}
       <div class="dim">no audio · system clock</div>
     {:else}
-      <div class="dim">sync {audioClock.syncErrorMs.toFixed(2)} ms · rtt {audioClock.roundTripMs.toFixed(2)} ms</div>
+      <div class="dim">
+        sync {audioClock.syncErrorMs.toFixed(2)} ms · rtt {audioClock.roundTripMs.toFixed(2)} ms
+        {useWallClock ? ' · WALL CLOCK' : ''}
+      </div>
       <div class="dim">
         voices {audioClock.stats?.activeVoices ?? 0}
         {#if (audioClock.stats?.droppedSamples ?? 0) > 0}
@@ -376,12 +459,12 @@
   </div>
 {/if}
 
-{#if lastJudgement}
+<!-- The judgement itself is drawn on the playfield now, where the skin puts it. What is
+     left here is the timing error, which osu shows nowhere and which is the reason to
+     look at this line at all. -->
+{#if lastJudgement && lastJudgement.errorMs !== null}
   <div class="flash j-{lastJudgement.judgement}">
-    {lastJudgement.judgement}
-    {#if lastJudgement.errorMs !== null}
-      <span class="offset">{lastJudgement.errorMs > 0 ? '+' : ''}{lastJudgement.errorMs.toFixed(0)} ms</span>
-    {/if}
+    <span class="offset">{lastJudgement.errorMs > 0 ? '+' : ''}{lastJudgement.errorMs.toFixed(0)} ms</span>
   </div>
 {/if}
 

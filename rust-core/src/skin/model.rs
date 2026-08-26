@@ -85,13 +85,81 @@ pub struct Theme {
     pub judgements: BTreeMap<String, String>,
     /// One entry per key count the skin styles.
     pub layouts: Vec<Layout>,
+    /// Bitmap number fonts, for counters the skin draws itself rather than in text.
+    #[serde(default, skip_serializing_if = "Fonts::is_empty")]
+    pub fonts: Fonts,
 }
+
+/// Bitmap digits, `0` through `9` in order.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fonts {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub combo: Vec<String>,
+    /// How far each digit is drawn over the one before it, in virtual units.
+    ///
+    /// Bitmap digits are authored with their own side bearing and look wrongly spaced
+    /// side by side, so skins state how much to pull them together.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub combo_overlap: f64,
+}
+
+impl Fonts {
+    pub fn is_empty(&self) -> bool {
+        self.combo.is_empty()
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_zero(value: &f64) -> bool {
+    *value == 0.0
+}
+
+/// Height of the space skin textures are authored in.
+///
+/// osu measures its stage in 480 units but draws legacy textures at 1.6x that, so a
+/// texture pixel is `480 / 768` of a virtual unit. Anything sized from a texture's own
+/// pixels — a receptor, a judgement line — has to come back through this, and both
+/// reference skins confirm it: their receptors then reach exactly from the hit position
+/// to the foot of the stage.
+pub const TEXTURE_SPACE_HEIGHT: f64 = 768.0;
+
+/// Height of the playfield every measurement in a layout is expressed against.
+///
+/// osu positions its stage inside a fixed 480-unit-high space and scales that to the
+/// window. Keeping the numbers in those units rather than converting them to pixels is
+/// what makes a layout resolution-independent: the renderer multiplies by
+/// `screenHeight / 480` and everything follows, at any window size.
+pub const VIRTUAL_HEIGHT: f64 = 480.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Layout {
     pub keys: u32,
+    /// Where the judgement line sits, in virtual units from the top.
+    pub hit_position: f64,
+    /// Separator widths in virtual units, one per lane edge — so one more than there
+    /// are columns. Skins overwhelmingly leave these at zero; the one non-zero value in
+    /// the reference set marks the split between hands of a 10-key double-play layout.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub line_widths: Vec<f64>,
     pub columns: Vec<ColumnStyle>,
+    /// Where the combo counter sits, in virtual units from the top.
+    pub combo_position: f64,
+    /// Where the judgement graphic sits, in virtual units from the top.
+    pub score_position: f64,
+    /// Whether the receptors are drawn behind the notes instead of over them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keys_under_notes: bool,
+    /// Whether to draw a plain line across the hit position.
+    ///
+    /// Skins that draw their own hit target turn this off, and drawing it anyway puts a
+    /// line across the stage the author deliberately removed.
+    #[serde(default = "yes")]
+    pub judgement_line: bool,
     #[serde(default, skip_serializing_if = "Stage::is_empty")]
     pub stage: Stage,
 }
@@ -100,8 +168,8 @@ pub struct Layout {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColumnStyle {
-    /// Width relative to the mean lane of this layout. `1.0` is even.
-    pub width_weight: f64,
+    /// Lane width in virtual units. Uneven widths are design intent and are kept.
+    pub width: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,6 +180,21 @@ pub struct ColumnStyle {
     pub body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tail: Option<String>,
+    /// Height of the receptor in virtual units.
+    ///
+    /// A receptor is stretched across the lane but keeps its authored height, unlike a
+    /// note which scales with the lane, so the height cannot be recovered from the
+    /// texture alone once the renderer has it: whether the file was a `@2x` variant is
+    /// known here and nowhere else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_height: Option<f64>,
+    /// Whether the tail image must be drawn upside down.
+    ///
+    /// Most skins ship no tail at all and reuse the head, which osu draws flipped so the
+    /// note reads as pointing the other way. Recording it here keeps that decision with
+    /// the skin rather than making the renderer guess from filenames.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tail_flipped: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,6 +213,9 @@ pub struct Stage {
     pub right: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    /// Height of the judgement line in virtual units, for the same reason as `key_height`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint_height: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub light: Option<String>,
 }
@@ -141,11 +227,12 @@ impl Stage {
 }
 
 impl Theme {
-    pub fn new(judgements: BTreeMap<String, String>, layouts: Vec<Layout>) -> Self {
+    pub fn new(judgements: BTreeMap<String, String>, layouts: Vec<Layout>, fonts: Fonts) -> Self {
         Self {
             format_version: FORMAT_VERSION,
             judgements,
             layouts,
+            fonts,
         }
     }
 }

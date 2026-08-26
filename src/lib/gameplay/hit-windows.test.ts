@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ManiaHitWindows, RELEASE_WINDOW_LENIENCE, difficultyRange } from './hit-windows.ts';
+import {
+  JUDGEMENT_LABELS,
+  JUDGEMENTS,
+  ManiaHitWindows,
+  RELEASE_WINDOW_LENIENCE,
+  difficultyRange,
+} from './hit-windows.ts';
 
 test('the difficulty range hinges on OD 5, not on the midpoint of the ends', () => {
   const range = [22.4, 19.4, 13.9] as const;
@@ -88,4 +94,24 @@ test('release lenience widens every tail window by half again', () => {
   assert.equal(windows.judge(great * RELEASE_WINDOW_LENIENCE, RELEASE_WINDOW_LENIENCE), 'great');
   assert.equal(windows.judge(great * RELEASE_WINDOW_LENIENCE + 1, RELEASE_WINDOW_LENIENCE), 'good');
   assert.equal(windows.missAfterMs(RELEASE_WINDOW_LENIENCE), windows.windowFor('ok') * 1.5);
+});
+
+test('judgement labels follow the mania scale, not osu!std', () => {
+  // The identifiers are osu's cross-ruleset `HitResult` names and read a step too
+  // generous in mania. What settles it is the reference skin's own artwork: its
+  // `mania-hit300` says PERFECT, which is the result the code calls `great`.
+  assert.deepEqual(JUDGEMENTS.map((j) => JUDGEMENT_LABELS[j]), [
+    'max',
+    'perfect',
+    'great',
+    'good',
+    'bad',
+    'miss',
+  ]);
+});
+
+test('every judgement has a label', () => {
+  for (const judgement of JUDGEMENTS) {
+    assert.equal(typeof JUDGEMENT_LABELS[judgement], 'string', judgement);
+  }
 });
