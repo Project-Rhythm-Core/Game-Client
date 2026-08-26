@@ -1,3 +1,3 @@
-export { ScrollTimeline } from './scroll-timeline';
-export type { ScrollTimelineOptions } from './scroll-timeline';
-export type * from './types';
+export { ScrollTimeline } from './scroll-timeline.ts';
+export type { ScrollTimelineOptions } from './scroll-timeline.ts';
+export type * from './types.ts';

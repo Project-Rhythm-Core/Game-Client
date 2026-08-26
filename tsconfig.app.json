@@ -13,6 +13,8 @@
      * Note that setting allowJs false does not prevent the use
      * of JS in `.svelte` files.
      */
+    // Imports name the real file, so Node can load these modules straight from source.
+    "allowImportingTsExtensions": true,
     "allowJs": true,
     "checkJs": true,
     "moduleDetection": "force"

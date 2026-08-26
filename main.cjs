@@ -2,6 +2,7 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
 const { registerAudioHandlers, releaseAudio } = require('./electron/audio-ipc.cjs');
+const { registerChartHandlers } = require('./electron/chart-ipc.cjs');
 
 // Chromium throttles rAF and timers in windows that do not have focus. In a rhythm game
 // that desynchronises the picture from the audio the moment the player alt-tabs away.
@@ -46,6 +47,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   registerAudioHandlers();
+  registerChartHandlers();
   createWindow();
 });
 

@@ -5,7 +5,7 @@
 // channel list without pulling either in.
 
 /** @type {Readonly<Record<string, string>>} */
-const CHANNEL = Object.freeze({
+const AUDIO_CHANNEL = Object.freeze({
   load: 'audio:load',
   play: 'audio:play',
   restart: 'audio:restart',
@@ -16,4 +16,12 @@ const CHANNEL = Object.freeze({
   stats: 'audio:stats',
 });
 
-module.exports = { CHANNEL };
+/** @type {Readonly<Record<string, string>>} */
+const CHART_CHANNEL = Object.freeze({
+  /** Convert a source chart and return it, along with the folder its media lives in. */
+  importOsu: 'chart:import-osu',
+  /** List the source charts bundled with the build, for picking one to play. */
+  listBundled: 'chart:list-bundled',
+});
+
+module.exports = { AUDIO_CHANNEL, CHART_CHANNEL };

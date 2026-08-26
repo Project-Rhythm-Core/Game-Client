@@ -1,4 +1,4 @@
-import type { AudioInfo, PlaybackStats } from './types';
+import type { AudioInfo, PlaybackStats } from './types.ts';
 
 /**
  * Playback position, local to the renderer.

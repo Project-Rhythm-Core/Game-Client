@@ -1,4 +1,4 @@
-import type { Chart, Note } from './types';
+import type { Chart, Note } from './types.ts';
 
 /**
  * Where notes are drawn, as opposed to when they are judged.

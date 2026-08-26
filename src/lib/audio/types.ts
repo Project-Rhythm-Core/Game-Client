@@ -49,10 +49,48 @@ export interface AudioBridge {
   stats(): Promise<PlaybackStats>;
 }
 
+/** A source chart discovered under the bundled assets. */
+export interface BundledChart {
+  path: string;
+  name: string;
+}
+
+/** What an import produced: the chart itself, plus where its media lives. */
+export interface ImportedChart {
+  chart: import('../chart/types.ts').Chart;
+  summary: ChartSummary;
+  mediaDir: string;
+  /** Absent for charts whose sound comes entirely from samples. */
+  audioPath: string | null;
+}
+
+export interface ChartSummary {
+  id: string;
+  title: string;
+  artist: string;
+  difficultyName: string;
+  columns: number;
+  noteCount: number;
+  holdCount: number;
+  lastNoteMs: number;
+  tempoPoints: number;
+  scrollPoints: number;
+  sampleCount: number;
+  audioFile: string;
+  outputPath: string;
+}
+
+/** The chart surface exposed on `window.electronAPI.chart`. */
+export interface ChartBridge {
+  importOsu(sourcePath: string): Promise<ImportedChart>;
+  listBundled(): Promise<BundledChart[]>;
+}
+
 declare global {
   interface Window {
     electronAPI: {
       audio: AudioBridge;
+      chart: ChartBridge;
     };
   }
 }

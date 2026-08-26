@@ -7,7 +7,7 @@
 
 const { ipcMain } = require('electron');
 
-const { CHANNEL } = require('./audio-channels.cjs');
+const { AUDIO_CHANNEL: CHANNEL } = require('./audio-channels.cjs');
 const engine = require('../rust-core/rust-core.node');
 
 /** Registers every audio handler. Call once, before the first window is created. */
