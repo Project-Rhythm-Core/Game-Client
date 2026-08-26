@@ -5,6 +5,7 @@
 //! lives in [`audio`].
 
 mod audio;
+mod chart;
 
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Error, Result, Status, Task};
@@ -199,6 +200,77 @@ pub fn set_offset_ms(offset_ms: f64) {
     if let Some(engine) = ENGINE.lock().unwrap().as_ref() {
         engine.clock().set_calibration_offset_ms(offset_ms);
     }
+}
+
+/// What a conversion produced. The chart itself goes to disk rather than across the
+/// boundary: marshalling tens of thousands of notes into JavaScript objects would cost
+/// far more than writing the file.
+#[napi(object)]
+pub struct ChartSummary {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub difficulty_name: String,
+    /// Key count.
+    pub columns: u32,
+    pub note_count: u32,
+    pub hold_count: u32,
+    /// Time of the last note, in milliseconds.
+    pub last_note_ms: f64,
+    pub tempo_points: u32,
+    pub scroll_points: u32,
+    pub sample_count: u32,
+    /// Audio file the chart refers to, relative to the chart file.
+    pub audio_file: String,
+    pub output_path: String,
+}
+
+pub struct ConvertChartTask {
+    source_path: String,
+    output_path: String,
+}
+
+impl Task for ConvertChartTask {
+    type Output = (chart::Chart, String);
+    type JsValue = ChartSummary;
+
+    /// Runs on a libuv worker: parsing a marathon chart is tens of thousands of lines.
+    fn compute(&mut self) -> Result<Self::Output> {
+        let converted = chart::osu::convert_to_json_file(&self.source_path, &self.output_path)
+            .map_err(engine_error)?;
+        Ok((converted, self.output_path.clone()))
+    }
+
+    fn resolve(&mut self, _env: Env, (converted, output_path): Self::Output) -> Result<Self::JsValue> {
+        Ok(ChartSummary {
+            id: converted.id.clone(),
+            title: converted.metadata.title.clone(),
+            artist: converted.metadata.artist.clone(),
+            difficulty_name: converted.metadata.difficulty_name.clone(),
+            columns: converted.columns.len() as u32,
+            note_count: converted.notes.len() as u32,
+            hold_count: converted.notes.iter().filter(|n| n.is_hold()).count() as u32,
+            last_note_ms: converted.notes.last().map(|n| n.end_ms.unwrap_or(n.time_ms)).unwrap_or(0.0),
+            tempo_points: converted.timing.tempo.len() as u32,
+            scroll_points: converted.timing.scroll.len() as u32,
+            sample_count: converted.samples.len() as u32,
+            audio_file: converted.audio.as_ref().map(|a| a.file.clone()).unwrap_or_default(),
+            output_path,
+        })
+    }
+}
+
+/// Converts an osu!mania `.osu` file into the game's chart format and writes it to
+/// `outputPath` as JSON.
+///
+/// Rejects charts that are not mode 3, and any chart that violates the format's
+/// invariants — better to fail at import than to ship something the runtime misreads.
+#[napi(ts_return_type = "Promise<ChartSummary>")]
+pub fn convert_osu_chart(source_path: String, output_path: String) -> AsyncTask<ConvertChartTask> {
+    AsyncTask::new(ConvertChartTask {
+        source_path,
+        output_path,
+    })
 }
 
 /// Closes the stream and releases the device.

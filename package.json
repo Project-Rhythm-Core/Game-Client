@@ -7,11 +7,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json",
     "build:native": "pnpm -C rust-core run build",
     "test:native": "pnpm -C rust-core run test",
     "electron": "pnpm run build && electron main.cjs --no-sandbox",
-    "electron:dev": "VITE_DEV_SERVER_URL=http://localhost:5173 electron main.cjs --no-sandbox"
+    "electron:dev": "VITE_DEV_SERVER_URL=http://localhost:5173 electron main.cjs --no-sandbox",
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\""
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",

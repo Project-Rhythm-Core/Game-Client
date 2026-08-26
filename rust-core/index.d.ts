@@ -17,6 +17,39 @@ export interface AudioInfo {
 }
 
 /**
+ * What a conversion produced. The chart itself goes to disk rather than across the
+ * boundary: marshalling tens of thousands of notes into JavaScript objects would cost
+ * far more than writing the file.
+ */
+export interface ChartSummary {
+  id: string
+  title: string
+  artist: string
+  difficultyName: string
+  /** Key count. */
+  columns: number
+  noteCount: number
+  holdCount: number
+  /** Time of the last note, in milliseconds. */
+  lastNoteMs: number
+  tempoPoints: number
+  scrollPoints: number
+  sampleCount: number
+  /** Audio file the chart refers to, relative to the chart file. */
+  audioFile: string
+  outputPath: string
+}
+
+/**
+ * Converts an osu!mania `.osu` file into the game's chart format and writes it to
+ * `outputPath` as JSON.
+ *
+ * Rejects charts that are not mode 3, and any chart that violates the format's
+ * invariants — better to fail at import than to ship something the runtime misreads.
+ */
+export declare function convertOsuChart(sourcePath: string, outputPath: string): Promise<ChartSummary>
+
+/**
  * Current audible position in milliseconds.
  *
  * Cheap by design — an atomic load and a subtraction — so it is safe to poll.

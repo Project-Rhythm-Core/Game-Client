@@ -27,3 +27,7 @@ dist-ssr
 rust-core/target/
 # Native addon build output: platform-specific, rebuilt with `pnpm run build:native`.
 rust-core/*.node
+
+# Chart media and converted charts are data, not source. Audio in particular is large
+# and usually not ours to redistribute; small fixture samples are kept.
+rust-core/assets/
