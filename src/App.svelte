@@ -5,7 +5,7 @@
   import { AudioClock } from './lib/audio/index.ts';
   import type { BundledChart, ImportedChart } from './lib/audio/types.ts';
   import { PlayableChart } from './lib/chart/playable-chart.ts';
-  import { Playfield } from './lib/render/index.ts';
+  import { FrameCounter, Playfield } from './lib/render/index.ts';
 
   /** Judgement window used only to retire notes while there is no input yet. */
   const LATE_WINDOW_MS = 180;
@@ -15,6 +15,7 @@
   let playfield: Playfield | null = null;
 
   const clock = new AudioClock();
+  const frames = new FrameCounter();
   // Reactive: the HUD reads both, so Svelte has to see them change.
   let playable = $state<PlayableChart | null>(null);
   let imported = $state<ImportedChart | null>(null);
@@ -29,7 +30,10 @@
   let travelMs = $state(700);
 
   // Diagnostics, refreshed from the render loop.
-  let hud = $state({ positionMs: 0, scroll: 0, velocity: 1, drawn: 0, missed: 0 });
+  let hud = $state({
+    positionMs: 0, scroll: 0, velocity: 1, drawn: 0, missed: 0,
+    fps: 0, frameMs: 0, worstMs: 0, longFrames: 0,
+  });
 
   onMount(async () => {
     app = new Application();
@@ -103,6 +107,9 @@
 
     try {
       playable.reset();
+      // The tally is per attempt: hitches from loading say nothing about this run.
+      frames.reset();
+      hud.missed = 0;
       if (imported?.audioPath) {
         if (playing) await clock.restart();
         else await clock.play();
@@ -122,6 +129,14 @@
   }
 
   function tick() {
+    // Measured before the early return so the counter sees every frame, not only the
+    // ones with something to draw.
+    frames.update(performance.now());
+    hud.fps = frames.fps;
+    hud.frameMs = frames.frameMs;
+    hud.worstMs = frames.worstMs;
+    hud.longFrames = frames.longFrames;
+
     if (!playable || !playfield) return;
 
     const positionMs = clock.isRunning ? clock.positionMs() : 0;
@@ -188,6 +203,17 @@
     <div>drawn {hud.drawn}</div>
     <div>missed {hud.missed}</div>
     <div class="dim">sync {clock.syncErrorMs.toFixed(2)} ms · rtt {clock.roundTripMs.toFixed(2)} ms</div>
+    <div class="rule"></div>
+    <div>
+      {hud.fps.toFixed(0)} fps
+      <span class="dim">· {hud.frameMs.toFixed(1)} ms</span>
+    </div>
+    <!-- The worst frame matters more than the average: a single long one is a visible
+         stutter, and the average hides it. -->
+    <div class:warn={hud.worstMs > 2 * frames.shortestFrameMs && frames.shortestFrameMs > 0}>
+      worst {hud.worstMs.toFixed(1)} ms
+    </div>
+    <div class:warn={hud.longFrames > 0}>long frames {hud.longFrames}</div>
   </div>
 {/if}
 
@@ -277,6 +303,16 @@
 
   .dim {
     color: var(--muted);
+  }
+
+  .warn {
+    color: #ffb454;
+  }
+
+  .rule {
+    height: 1px;
+    margin: 6px 0;
+    background: var(--border);
   }
 
   .error {
