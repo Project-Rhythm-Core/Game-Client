@@ -77,6 +77,14 @@ export declare function getPositionMs(): number
 export declare function getStats(): PlaybackStats
 
 /**
+ * Converts an osu skin folder into the game's own package.
+ *
+ * Only what transfers is taken. osu's positional values are pixels in its fixed stage
+ * and are deliberately left behind.
+ */
+export declare function importOsuSkin(sourceDir: string, outputDir: string): SkinSummary
+
+/**
  * True once the device is up to speed and `play()` will be heard immediately.
  *
  * Before that, a `play()` can take a couple of hundred milliseconds to become audible
@@ -99,6 +107,15 @@ export declare function loadAudio(path: string): Promise<AudioInfo>
  * judgement was.
  */
 export declare function loadChartAudio(request: ChartAudioRequest): Promise<AudioInfo>
+
+/**
+ * Reads a skin's sound bank, as absolute paths keyed by the name a chart asks for.
+ *
+ * This is the fallback for a chart that names a sound it does not ship — which is not an
+ * edge case: every difficulty of one reference chart asks for `normal-hitnormal.wav`
+ * without providing it, so without this the whole chart plays with no hit sounds at all.
+ */
+export declare function loadSkinSounds(skinDir: string): Record<string, string>
 
 /** Starts playback of the loaded track. Audible within one buffer period. */
 export declare function play(): void
@@ -130,6 +147,9 @@ export interface PlaybackStats {
  */
 export declare function playSample(sampleIndex: number, volume: number): void
 
+/** Reads a skin package's manifest. */
+export declare function readSkinManifest(skinDir: string): SkinSummary
+
 /**
  * Returns to the beginning without reopening the device.
  *
@@ -157,6 +177,20 @@ export interface ScheduledSoundInput {
  * the player. It is a no-op when nothing is loaded.
  */
 export declare function setOffsetMs(offsetMs: number): void
+
+/** What importing a skin produced. */
+export interface SkinSummary {
+  id: string
+  name: string
+  author: string
+  /** Hit sounds found and copied into the package. */
+  soundCount: number
+  /** Key counts the skin styles. */
+  layoutCount: number
+  /** Distinct textures copied. */
+  textureCount: number
+  outputPath: string
+}
 
 /**
  * Closes the stream and releases the device.

@@ -10,6 +10,7 @@ const os = require('os');
 const path = require('path');
 
 const { CHART_CHANNEL } = require('./audio-channels.cjs');
+const skin = require('./skin.cjs');
 const core = require('../rust-core/rust-core.node');
 
 /** Source charts that ship with the build, used while there is no song library yet. */
@@ -63,13 +64,20 @@ async function importOsu(sourcePath) {
      * Absolute paths for the sample bank, in chart index order.
      *
      * Resolved here because the renderer has no business knowing where media lives, and
-     * kept positional because notes refer to samples by index.
+     * kept positional because notes refer to samples by index. A sound the chart does
+     * not ship falls back to the active skin.
      */
-    samplePaths: chart.samples.map((sample) => path.join(mediaDir, sample.file)),
+    samplePaths: chart.samples.map((sample) => skin.resolveSample(mediaDir, sample.file)),
   };
 }
 
 function registerChartHandlers() {
+  // Import the default skin up front so the first chart already has its fallback sounds.
+  const loaded = skin.loadSkin();
+  if (loaded) {
+    console.log(`[skin] ${loaded.name} by ${loaded.author || 'unknown'} — ${loaded.soundCount} sounds`);
+  }
+
   ipcMain.handle(CHART_CHANNEL.listBundled, () => listBundled());
   ipcMain.handle(CHART_CHANNEL.importOsu, (_event, sourcePath) => importOsu(sourcePath));
 }

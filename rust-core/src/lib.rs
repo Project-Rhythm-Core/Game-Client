@@ -6,11 +6,13 @@
 
 mod audio;
 mod chart;
+mod skin;
 
 use napi::bindgen_prelude::AsyncTask;
 use napi::{Env, Error, Result, Status, Task};
 use napi_derive::napi;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use audio::{AudioEngine, DecodedAudio};
@@ -404,6 +406,67 @@ pub fn convert_osu_chart(source_path: String, output_path: String) -> AsyncTask<
         source_path,
         output_path,
     })
+}
+
+/// What importing a skin produced.
+#[napi(object)]
+pub struct SkinSummary {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+    /// Hit sounds found and copied into the package.
+    pub sound_count: u32,
+    /// Key counts the skin styles.
+    pub layout_count: u32,
+    /// Distinct textures copied.
+    pub texture_count: u32,
+    pub output_path: String,
+}
+
+/// Converts an osu skin folder into the game's own package.
+///
+/// Only what transfers is taken. osu's positional values are pixels in its fixed stage
+/// and are deliberately left behind.
+#[napi]
+pub fn import_osu_skin(source_dir: String, output_dir: String) -> Result<SkinSummary> {
+    let imported = skin::osu::import(&source_dir, &output_dir).map_err(engine_error)?;
+
+    Ok(SkinSummary {
+        id: imported.id,
+        name: imported.name,
+        author: imported.author,
+        sound_count: imported.sound_count as u32,
+        layout_count: imported.layout_count as u32,
+        texture_count: imported.texture_count as u32,
+        output_path: imported.output_dir.to_string_lossy().into_owned(),
+    })
+}
+
+/// Reads a skin package's manifest.
+#[napi]
+pub fn read_skin_manifest(skin_dir: String) -> Result<SkinSummary> {
+    let manifest = skin::osu::read_manifest(&skin_dir).map_err(engine_error)?;
+
+    Ok(SkinSummary {
+        id: manifest.id,
+        name: manifest.name,
+        author: manifest.author,
+        sound_count: 0,
+        layout_count: 0,
+        texture_count: 0,
+        output_path: skin_dir,
+    })
+}
+
+/// Reads a skin's sound bank, as absolute paths keyed by the name a chart asks for.
+///
+/// This is the fallback for a chart that names a sound it does not ship — which is not an
+/// edge case: every difficulty of one reference chart asks for `normal-hitnormal.wav`
+/// without providing it, so without this the whole chart plays with no hit sounds at all.
+#[napi]
+pub fn load_skin_sounds(skin_dir: String) -> Result<HashMap<String, String>> {
+    let bank = skin::osu::read_sound_bank(&skin_dir).map_err(engine_error)?;
+    Ok(bank.into_iter().collect())
 }
 
 /// Closes the stream and releases the device.
