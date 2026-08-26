@@ -52,36 +52,34 @@ test('a lane offers only its own earliest unjudged note', () => {
   // An empty lane has nothing to offer.
   assert.equal(playable.nextJudgeable(3), -1);
 
-  playable.noteStates[0] = NoteState.Hit;
+  playable.headStates[0] = NoteState.Hit;
   assert.equal(playable.nextJudgeable(0), 2, 'the cursor should step past a judged note');
 
-  playable.noteStates[2] = NoteState.Missed;
+  playable.headStates[2] = NoteState.Missed;
   assert.equal(playable.nextJudgeable(0), -1, 'the lane is exhausted');
 });
 
-test('expiry is decided by time, never by position', () => {
+test('a hold is not finished until its release has been judged', () => {
   const playable = new PlayableChart(chartOf([
-    { timeMs: 0, column: 0 },
-    { timeMs: 100, column: 1 },
-    { timeMs: 5000, column: 0 },
+    { timeMs: 0, column: 0, endMs: 1000 },
+    { timeMs: 2000, column: 0 },
   ]));
 
-  assert.equal(playable.retireExpired(50, 20), 1);
-  assert.equal(playable.noteStates[0], NoteState.Missed);
-  assert.equal(playable.noteStates[1], NoteState.Pending);
+  playable.headStates[0] = NoteState.Hit;
+  assert.equal(playable.isFullyJudged(0), false, 'the tail is still outstanding');
+  assert.equal(playable.nextJudgeable(0), 0, 'so the lane stays parked on it');
 
-  // The lane's cursor moved with it.
-  assert.equal(playable.nextJudgeable(0), 2);
-
-  assert.equal(playable.retireExpired(50, 20), 0, 'retiring twice must not double-count');
+  playable.tailStates[0] = NoteState.Hit;
+  assert.equal(playable.isFullyJudged(0), true);
+  assert.equal(playable.nextJudgeable(0), 1);
 });
 
-test('a note already hit is not retired as missed', () => {
+test('a tap is finished as soon as its head is judged', () => {
   const playable = new PlayableChart(chartOf([{ timeMs: 0, column: 0 }]));
 
-  playable.noteStates[0] = NoteState.Hit;
-  assert.equal(playable.retireExpired(1000, 20), 0);
-  assert.equal(playable.noteStates[0], NoteState.Hit);
+  assert.equal(playable.isFullyJudged(0), false);
+  playable.headStates[0] = NoteState.Missed;
+  assert.equal(playable.isFullyJudged(0), true, 'a tap has no tail to wait for');
 });
 
 test('the visible window is the contiguous range the scroll covers', () => {
@@ -120,13 +118,23 @@ test('a hold stays visible while any part of it is on screen', () => {
   assert.equal(range.start, 0, 'the hold must still be drawn');
 });
 
+test('a hold counts as two outstanding judgements', () => {
+  const playable = new PlayableChart(chartOf([
+    { timeMs: 0, column: 0, endMs: 500 },
+    { timeMs: 1000, column: 0 },
+  ]));
+
+  assert.equal(playable.pendingCount, 3, 'head, tail, and one tap');
+});
+
 test('reset puts every cursor and note back', () => {
   const playable = new PlayableChart(chartOf([
     { timeMs: 0, column: 0 },
     { timeMs: 100, column: 0 },
   ]));
 
-  playable.retireExpired(1000, 20);
+  playable.headStates.fill(NoteState.Missed);
+  playable.nextJudgeable(0);
   assert.equal(playable.pendingCount, 0);
 
   playable.reset();

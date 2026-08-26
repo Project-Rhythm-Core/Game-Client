@@ -14,6 +14,20 @@ export interface AudioInfo {
   bufferFrames: number
   /** Theoretical latency of one buffer at this rate, in milliseconds. */
   bufferMs: number
+  /** Samples that could not be decoded and were loaded as silence. */
+  silentSamples: number
+}
+
+/** Everything a chart needs to be heard. */
+export interface ChartAudioRequest {
+  /** Background track, if the chart has one. A fully keysounded chart has none. */
+  musicPath?: string
+  /** Sound bank, in the order the chart's sample indices refer to. */
+  samplePaths: Array<string>
+  /** Sounds that play on schedule with no note attached. */
+  scheduled: Array<ScheduledSoundInput>
+  /** Chart length, used when there is no music to measure. */
+  durationMs: number
 }
 
 /**
@@ -49,6 +63,9 @@ export interface ChartSummary {
  */
 export declare function convertOsuChart(sourcePath: string, outputPath: string): Promise<ChartSummary>
 
+/** Sounds dropped because the trigger queue backed up. Should stay at zero. */
+export declare function droppedSampleCount(): number
+
 /**
  * Current audible position in milliseconds.
  *
@@ -74,6 +91,15 @@ export declare function isReady(): boolean
  */
 export declare function loadAudio(path: string): Promise<AudioInfo>
 
+/**
+ * Loads a chart's music and sample bank together, and opens the device.
+ *
+ * Everything is mixed into one stream, so a keysound and the music share a latency.
+ * Splitting them across outputs would make the game feel wrong however accurate its
+ * judgement was.
+ */
+export declare function loadChartAudio(request: ChartAudioRequest): Promise<AudioInfo>
+
 /** Starts playback of the loaded track. Audible within one buffer period. */
 export declare function play(): void
 
@@ -90,7 +116,19 @@ export interface PlaybackStats {
   playing: boolean
   /** The device is up to speed, so starting playback will be heard immediately. */
   ready: boolean
+  /** Sample voices sounding right now. Non-zero means the bank is actually playing. */
+  activeVoices: number
+  /** Sounds dropped because the trigger queue backed up. Should stay at zero. */
+  droppedSamples: number
 }
+
+/**
+ * Plays one sound from the bank straight away, at `volume` from 0 to 100.
+ *
+ * This is the path a keypress takes. It reaches the audio thread through a lock-free
+ * queue, so it never blocks whoever called it and never stalls playback.
+ */
+export declare function playSample(sampleIndex: number, volume: number): void
 
 /**
  * Returns to the beginning without reopening the device.
@@ -100,6 +138,15 @@ export interface PlaybackStats {
  * previous anchor.
  */
 export declare function restart(): void
+
+/** A sound the chart plays on its own, with no note to hit. */
+export interface ScheduledSoundInput {
+  timeMs: number
+  /** Index into the sample paths given to `loadChartAudio`. */
+  sample: number
+  /** 0 to 100. */
+  volume: number
+}
 
 /**
  * Manual calibration, in milliseconds.

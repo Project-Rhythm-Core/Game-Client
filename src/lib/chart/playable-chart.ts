@@ -49,8 +49,18 @@ export class PlayableChart {
   /** For a hold, the scroll position of its tail. Equal to the head for tap notes. */
   readonly noteEndPositions: Float64Array;
 
-  /** Judgement state, parallel to `chart.notes`. */
-  readonly noteStates: Uint8Array;
+  /**
+   * Judgement state of each note's head, parallel to `chart.notes`.
+   *
+   * For a tap this is the note's only state. For a hold it is the press.
+   */
+  readonly headStates: Uint8Array;
+
+  /** Judgement state of each hold's release. Unused for taps. */
+  readonly tailStates: Uint8Array;
+
+  /** `1` where a hold was let go before its tail became reachable. */
+  readonly holdBroken: Uint8Array;
 
   /** Indices into `chart.notes`, grouped by column and still in time order. */
   readonly columnNotes: readonly Int32Array[];
@@ -67,7 +77,9 @@ export class PlayableChart {
 
     const notes = chart.notes;
     this.notePositions = this.scroll.positionsForNotes(notes);
-    this.noteStates = new Uint8Array(notes.length);
+    this.headStates = new Uint8Array(notes.length);
+    this.tailStates = new Uint8Array(notes.length);
+    this.holdBroken = new Uint8Array(notes.length);
 
     this.noteEndPositions = new Float64Array(notes.length);
     for (let i = 0; i < notes.length; i++) {
@@ -82,9 +94,23 @@ export class PlayableChart {
 
   /** Puts every cursor and every note back to the start. */
   reset(): void {
-    this.noteStates.fill(NoteState.Pending);
+    this.headStates.fill(NoteState.Pending);
+    this.tailStates.fill(NoteState.Pending);
+    this.holdBroken.fill(0);
     this.judgementCursors.fill(0);
     this.renderCursor = 0;
+  }
+
+  /**
+   * Whether nothing more can happen to this note.
+   *
+   * A hold is not finished until its release has been judged too, which is what keeps a
+   * lane's cursor parked on it while the player is still holding it down.
+   */
+  isFullyJudged(index: number): boolean {
+    if (this.headStates[index] === NoteState.Pending) return false;
+    if (this.chart.notes[index].endMs === undefined) return true;
+    return this.tailStates[index] !== NoteState.Pending;
   }
 
   // -------------------------------------------------------------------------
@@ -129,66 +155,31 @@ export class PlayableChart {
   // -------------------------------------------------------------------------
 
   /**
-   * The note a press in `column` would resolve against, or `-1` if there is none.
+   * The note a press or release in `column` resolves against, or `-1` if none is left.
    *
-   * Only the earliest unjudged note in that lane can be hit, so this is a lookup rather
-   * than a search. Notes that have already expired are stepped over — call
-   * {@link retireExpired} each frame so that stays cheap.
+   * Only the earliest note in the lane with anything left to judge is reachable, so this
+   * is a lookup rather than a search. Notes that have been fully judged are stepped over
+   * once and never revisited.
    */
   nextJudgeable(column: number): number {
     const lane = this.columnNotes[column];
     if (lane === undefined) return -1;
 
     let cursor = this.judgementCursors[column];
-    while (cursor < lane.length && this.noteStates[lane[cursor]] !== NoteState.Pending) {
-      cursor++;
-    }
+    while (cursor < lane.length && this.isFullyJudged(lane[cursor])) cursor++;
     this.judgementCursors[column] = cursor;
 
     return cursor < lane.length ? lane[cursor] : -1;
   }
 
-  /**
-   * Marks notes whose window has closed as missed, and returns how many.
-   *
-   * This is what keeps the judgement cursors moving when the player does nothing. It has
-   * to run on time, never on screen position: a chart can hide notes entirely or freeze
-   * them in place, and both still have to be judged.
-   */
-  retireExpired(timeMs: number, lateWindowMs: number): number {
-    const deadline = timeMs - lateWindowMs;
-    let missed = 0;
-
-    for (let column = 0; column < this.columnNotes.length; column++) {
-      const lane = this.columnNotes[column];
-      let cursor = this.judgementCursors[column];
-
-      while (cursor < lane.length) {
-        const index = lane[cursor];
-        const state = this.noteStates[index];
-
-        if (state !== NoteState.Pending) {
-          cursor++;
-          continue;
-        }
-        if (this.chart.notes[index].timeMs >= deadline) break;
-
-        this.noteStates[index] = NoteState.Missed;
-        missed++;
-        cursor++;
-      }
-
-      this.judgementCursors[column] = cursor;
-    }
-
-    return missed;
-  }
-
-  /** How many notes are still waiting to be judged. */
+  /** How many judgements are still outstanding, counting a hold's head and tail apart. */
   get pendingCount(): number {
     let pending = 0;
-    for (let i = 0; i < this.noteStates.length; i++) {
-      if (this.noteStates[i] === NoteState.Pending) pending++;
+    for (let i = 0; i < this.headStates.length; i++) {
+      if (this.headStates[i] === NoteState.Pending) pending++;
+      if (this.chart.notes[i].endMs !== undefined && this.tailStates[i] === NoteState.Pending) {
+        pending++;
+      }
     }
     return pending;
   }

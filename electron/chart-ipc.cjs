@@ -50,13 +50,22 @@ async function importOsu(sourcePath) {
   const summary = await core.convertOsuChart(sourcePath, outputPath);
   const chart = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
 
+  const mediaDir = path.dirname(sourcePath);
+
   return {
     chart,
     summary,
     /** Where the chart's audio and samples live. */
-    mediaDir: path.dirname(sourcePath),
+    mediaDir,
     /** Absolute path to the background track, when the chart has one. */
-    audioPath: chart.audio ? path.join(path.dirname(sourcePath), chart.audio.file) : null,
+    audioPath: chart.audio ? path.join(mediaDir, chart.audio.file) : null,
+    /**
+     * Absolute paths for the sample bank, in chart index order.
+     *
+     * Resolved here because the renderer has no business knowing where media lives, and
+     * kept positional because notes refer to samples by index.
+     */
+    samplePaths: chart.samples.map((sample) => path.join(mediaDir, sample.file)),
   };
 }
 

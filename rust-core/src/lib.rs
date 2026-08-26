@@ -43,6 +43,8 @@ pub struct AudioInfo {
     pub buffer_frames: u32,
     /// Theoretical latency of one buffer at this rate, in milliseconds.
     pub buffer_ms: f64,
+    /// Samples that could not be decoded and were loaded as silence.
+    pub silent_samples: u32,
 }
 
 /// A snapshot of playback state.
@@ -59,6 +61,33 @@ pub struct PlaybackStats {
     pub playing: bool,
     /// The device is up to speed, so starting playback will be heard immediately.
     pub ready: bool,
+    /// Sample voices sounding right now. Non-zero means the bank is actually playing.
+    pub active_voices: u32,
+    /// Sounds dropped because the trigger queue backed up. Should stay at zero.
+    pub dropped_samples: u32,
+}
+
+/// A sound the chart plays on its own, with no note to hit.
+#[napi(object)]
+pub struct ScheduledSoundInput {
+    pub time_ms: f64,
+    /// Index into the sample paths given to `loadChartAudio`.
+    pub sample: u32,
+    /// 0 to 100.
+    pub volume: f64,
+}
+
+/// Everything a chart needs to be heard.
+#[napi(object)]
+pub struct ChartAudioRequest {
+    /// Background track, if the chart has one. A fully keysounded chart has none.
+    pub music_path: Option<String>,
+    /// Sound bank, in the order the chart's sample indices refer to.
+    pub sample_paths: Vec<String>,
+    /// Sounds that play on schedule with no note attached.
+    pub scheduled: Vec<ScheduledSoundInput>,
+    /// Chart length, used when there is no music to measure.
+    pub duration_ms: f64,
 }
 
 /// Decodes on a worker thread, then opens the device on the caller's thread.
@@ -88,6 +117,7 @@ impl Task for LoadAudioTask {
             device_name: info.device_name.clone(),
             buffer_frames: info.buffer_frames,
             buffer_ms: info.buffer_ms,
+            silent_samples: 0,
         };
 
         *ENGINE.lock().unwrap() = Some(engine);
@@ -102,6 +132,105 @@ impl Task for LoadAudioTask {
 #[napi(ts_return_type = "Promise<AudioInfo>")]
 pub fn load_audio(path: String) -> AsyncTask<LoadAudioTask> {
     AsyncTask::new(LoadAudioTask { path })
+}
+
+/// Decodes a chart's music and its whole sample bank, then opens the device.
+pub struct LoadChartAudioTask {
+    request: ChartAudioRequest,
+}
+
+impl Task for LoadChartAudioTask {
+    type Output = (Option<DecodedAudio>, Vec<DecodedAudio>, u32);
+    type JsValue = AudioInfo;
+
+    /// Runs on a libuv worker. A keysounded chart can carry hundreds of sounds, so this
+    /// is well beyond what the main thread could absorb.
+    fn compute(&mut self) -> Result<Self::Output> {
+        let music = match &self.request.music_path {
+            Some(path) => Some(audio::decode_file(path).map_err(engine_error)?),
+            None => None,
+        };
+
+        let mut bank = Vec::with_capacity(self.request.sample_paths.len());
+        for path in &self.request.sample_paths {
+            // A chart may name sounds it does not ship, expecting a skin to supply them.
+            // One missing file must not cost the player the whole chart, so it becomes
+            // silence and everything else still plays.
+            match audio::decode_file(path) {
+                Ok(decoded) => bank.push(decoded),
+                Err(_) => bank.push(DecodedAudio {
+                    samples: Vec::new(),
+                    sample_rate: 44_100,
+                    channels: 2,
+                }),
+            }
+
+        }
+
+        let silent = bank.iter().filter(|sample| sample.samples.is_empty()).count() as u32;
+
+        Ok((music, bank, silent))
+    }
+
+    fn resolve(&mut self, _env: Env, (music, bank, silent): Self::Output) -> Result<Self::JsValue> {
+        let scheduled = self
+            .request
+            .scheduled
+            .iter()
+            .map(|sound| (sound.time_ms, sound.sample, (sound.volume / 100.0) as f32))
+            .collect();
+
+        let engine =
+            AudioEngine::prepare_with_samples(music, bank, scheduled, self.request.duration_ms)
+                .map_err(engine_error)?;
+
+        let info = engine.info();
+        let audio_info = AudioInfo {
+            duration_ms: info.duration_ms,
+            sample_rate: info.sample_rate,
+            channels: info.channels as u32,
+            device_name: info.device_name.clone(),
+            buffer_frames: info.buffer_frames,
+            buffer_ms: info.buffer_ms,
+            silent_samples: silent,
+        };
+
+        *ENGINE.lock().unwrap() = Some(engine);
+
+        Ok(audio_info)
+    }
+}
+
+/// Loads a chart's music and sample bank together, and opens the device.
+///
+/// Everything is mixed into one stream, so a keysound and the music share a latency.
+/// Splitting them across outputs would make the game feel wrong however accurate its
+/// judgement was.
+#[napi(ts_return_type = "Promise<AudioInfo>")]
+pub fn load_chart_audio(request: ChartAudioRequest) -> AsyncTask<LoadChartAudioTask> {
+    AsyncTask::new(LoadChartAudioTask { request })
+}
+
+/// Plays one sound from the bank straight away, at `volume` from 0 to 100.
+///
+/// This is the path a keypress takes. It reaches the audio thread through a lock-free
+/// queue, so it never blocks whoever called it and never stalls playback.
+#[napi]
+pub fn play_sample(sample_index: u32, volume: f64) {
+    if let Some(engine) = ENGINE.lock().unwrap().as_ref() {
+        engine.play_sample(sample_index, (volume / 100.0) as f32);
+    }
+}
+
+/// Sounds dropped because the trigger queue backed up. Should stay at zero.
+#[napi]
+pub fn dropped_sample_count() -> u32 {
+    ENGINE
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|engine| engine.dropped_triggers() as u32)
+        .unwrap_or(0)
 }
 
 /// Starts playback of the loaded track. Audible within one buffer period.
@@ -159,6 +288,8 @@ pub fn get_stats() -> PlaybackStats {
             rate_ratio: 1.0,
             playing: false,
             ready: false,
+            active_voices: 0,
+            dropped_samples: 0,
         };
     };
 
@@ -172,6 +303,8 @@ pub fn get_stats() -> PlaybackStats {
         rate_ratio: clock.rate_ratio(),
         playing: clock.is_playing(),
         ready: clock.is_device_warm(),
+        active_voices: engine.active_voices() as u32,
+        dropped_samples: engine.dropped_triggers() as u32,
     }
 }
 

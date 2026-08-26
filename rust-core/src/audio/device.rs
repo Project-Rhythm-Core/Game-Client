@@ -44,6 +44,28 @@ impl DeviceStream {
     }
 }
 
+/// Converts decoded PCM to a target rate and channel layout.
+///
+/// Used for the sample bank, where every sound has to end up in the device's own format
+/// before it can be mixed. The stream's own conversion goes through [`negotiate`], which
+/// also has to choose that format in the first place.
+pub fn adapt_to(audio: DecodedAudio, sample_rate: u32, channels: u16) -> Vec<f32> {
+    let DecodedAudio {
+        mut samples,
+        sample_rate: source_rate,
+        channels: source_channels,
+    } = audio;
+
+    if source_channels != channels {
+        samples = remap_channels(&samples, source_channels, channels);
+    }
+    if source_rate != sample_rate {
+        samples = resample_linear(&samples, channels, source_rate, sample_rate);
+    }
+
+    samples
+}
+
 /// Adapts `audio` to something `device` will accept, and works out the stream config.
 pub fn negotiate(
     device: &cpal::Device,

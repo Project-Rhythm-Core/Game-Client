@@ -2,23 +2,96 @@
   import { onDestroy, onMount } from 'svelte';
   import { Application, type Ticker } from 'pixi.js';
 
-  import { AudioClock } from './lib/audio/index.ts';
+  import { AudioClock, SystemClock, type PlaybackClock } from './lib/audio/index.ts';
   import type { BundledChart, ImportedChart } from './lib/audio/types.ts';
   import { PlayableChart } from './lib/chart/playable-chart.ts';
+  import { ColumnInput, JUDGEMENTS, ManiaJudge, defaultLayout, unstableRate } from './lib/gameplay/index.ts';
+  import type { Judgement } from './lib/gameplay/index.ts';
   import { FrameCounter, Playfield } from './lib/render/index.ts';
 
-  /** Judgement window used only to retire notes while there is no input yet. */
-  const LATE_WINDOW_MS = 180;
+  /** How long a judgement stays on screen. */
+  const JUDGEMENT_FLASH_MS = 500;
 
   let stage: HTMLDivElement;
   let app: Application | null = null;
   let playfield: Playfield | null = null;
 
-  const clock = new AudioClock();
+  const audioClock = new AudioClock();
+
+  /**
+   * Drives a chart that has no background track.
+   *
+   * A fully keysounded chart has nothing to follow, and the engine cannot yet mix its
+   * samples, so time has to come from somewhere or nothing on screen moves at all.
+   */
+  const systemClock = new SystemClock();
+
+  /** Whichever of the two is timing the chart currently loaded. */
+  let clock: PlaybackClock = $state(audioClock);
+
+  /** True while the loaded chart is being timed with no audio to follow. */
+  let silent = $state(false);
+
   const frames = new FrameCounter();
-  // Reactive: the HUD reads both, so Svelte has to see them change.
-  let playable = $state<PlayableChart | null>(null);
-  let imported = $state<ImportedChart | null>(null);
+
+  /**
+   * Raw rather than deep state, and not only for speed.
+   *
+   * `$state` proxies plain objects all the way down, so a chart's thousands of notes
+   * would each be wrapped — and, worse, anything reached through the proxy is a `Proxy`
+   * rather than the array it looks like. Structured clone refuses those, so sending one
+   * across IPC fails with nothing more helpful than "an object could not be cloned".
+   * Nothing here is mutated in place; these are replaced wholesale, which raw state
+   * still reacts to.
+   */
+  let judge = $state.raw<ManiaJudge | null>(null);
+  const input = new ColumnInput(audioClock, {
+    onPress: (column, songTimeMs) => {
+      const event = judge?.press(column, songTimeMs);
+      if (!event) return;
+
+      // A keysounded chart's melody *is* the notes: this is the sound, not an effect on
+      // top of one. It fires even on a miss, because in those charts a missed note is a
+      // note the player still played, just badly.
+      playNoteSamples(event.noteIndex);
+      flash(event.judgement, event.errorMs, event.column);
+    },
+    onRelease: (column, songTimeMs) => {
+      const event = judge?.release(column, songTimeMs);
+      if (event) flash(event.judgement, event.errorMs, event.column);
+    },
+  });
+
+  let lastJudgement = $state<{ judgement: Judgement; errorMs: number | null } | null>(null);
+  let lastJudgementAt = 0;
+
+  /** Fires whatever sounds a note carries. Silent for charts that have none. */
+  function playNoteSamples(noteIndex: number) {
+    const note = playable?.chart.notes[noteIndex];
+    if (!note?.samples?.length) return;
+
+    for (const sample of note.samples) {
+      window.electronAPI.audio.playSample(sample, note.volume ?? 100);
+    }
+  }
+
+  /** How long a chart runs, for charts with no music to measure. */
+  function chartLengthMs(chart: ImportedChart['chart']): number {
+    let last = 0;
+    for (const note of chart.notes) last = Math.max(last, note.endMs ?? note.timeMs);
+    for (const event of chart.bgmEvents) last = Math.max(last, event.timeMs);
+    // A little tail so the final sounds are not cut off by the end of the timeline.
+    return last + 5000;
+  }
+
+  function flash(judgement: Judgement, errorMs: number | null, column: number) {
+    lastJudgement = { judgement, errorMs };
+    lastJudgementAt = performance.now();
+    playfield?.notifyJudgement(column, judgement, lastJudgementAt);
+  }
+  // Replaced wholesale on load, never mutated in place: see the note on `judge`.
+  let playable = $state.raw<PlayableChart | null>(null);
+  let imported = $state.raw<ImportedChart | null>(null);
 
   let available = $state<BundledChart[]>([]);
   let selected = $state('');
@@ -31,7 +104,9 @@
 
   // Diagnostics, refreshed from the render loop.
   let hud = $state({
-    positionMs: 0, scroll: 0, velocity: 1, drawn: 0, missed: 0,
+    positionMs: 0, scroll: 0, velocity: 1, drawn: 0,
+    combo: 0, maxCombo: 0, accuracy: 1, unstableRate: 0,
+    counts: { perfect: 0, great: 0, good: 0, ok: 0, meh: 0, miss: 0 } as Record<Judgement, number>,
     fps: 0, frameMs: 0, worstMs: 0, updateMs: 0, worstUpdateMs: 0, load: 0, longFrames: 0,
   });
 
@@ -58,7 +133,8 @@
     window.removeEventListener('resize', onResize);
     playfield?.destroy();
     app?.destroy(true);
-    void clock.unload();
+    systemClock.stop();
+    void audioClock.unload();
   });
 
   function onResize() {
@@ -74,22 +150,42 @@
     try {
       imported = await window.electronAPI.chart.importOsu(selected);
       playable = new PlayableChart(imported.chart, { constantVelocity });
+      // Overall difficulty is kept in the chart's provenance: it is an osu concept, not
+      // one the format needs a field of its own for.
+      judge = new ManiaJudge(playable, imported.chart.origin.values.overallDifficulty ?? 5);
+      input.setLayout(defaultLayout(imported.chart.columns.length));
       playfield?.drawLanes(playable);
 
-      if (!imported.audioPath) {
-        // A fully keysounded chart has no track to play, and the engine cannot yet
-        // mix its samples, so it can be drawn but not heard.
-        status = 'no background track — this chart is keysounded, so it will be silent';
-        ready = true;
-        return;
-      }
+      clock = audioClock;
+      input.clock = audioClock;
+      silent = false;
 
-      status = 'decoding audio…';
-      await clock.load(imported.audioPath);
+      status = imported.samplePaths.length
+        ? `decoding audio and ${imported.samplePaths.length} samples…`
+        : 'decoding audio…';
+
+      // Music and sample bank are loaded together so they share one stream, and so a
+      // keysounded chart gets a real clock rather than the free-running fallback.
+      await audioClock.loadChart({
+        musicPath: imported.audioPath ?? undefined,
+        samplePaths: imported.samplePaths,
+        scheduled: imported.chart.bgmEvents.map((event) => ({
+          timeMs: event.timeMs,
+          sample: event.sample,
+          volume: event.volume ?? 100,
+        })),
+        durationMs: chartLengthMs(imported.chart),
+      });
 
       status = 'waiting for the device…';
-      if (!(await clock.waitUntilReady())) {
-        error = 'the audio device never came up';
+      if (!(await audioClock.waitUntilReady())) {
+        // No usable device. The chart is still playable, just silent, which beats
+        // refusing to start at all.
+        clock = systemClock;
+        input.clock = systemClock;
+        silent = true;
+        ready = true;
+        status = 'no audio device — playable but silent';
         return;
       }
 
@@ -106,16 +202,19 @@
     error = null;
 
     try {
-      playable.reset();
+      judge?.reset();
+      input.releaseAll();
+      lastJudgement = null;
+      playfield?.clearFlashes();
       // The tally is per attempt: hitches from loading say nothing about this run.
       frames.reset();
-      hud.missed = 0;
-      if (imported?.audioPath) {
-        if (playing) await clock.restart();
-        else await clock.play();
-      }
+
+      if (silent) systemClock.start();
+      else if (playing) await audioClock.restart();
+      else await audioClock.play();
+
       playing = true;
-      status = 'playing';
+      status = silent ? 'playing (silent)' : 'playing';
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -124,6 +223,7 @@
   function rebuild() {
     if (!imported) return;
     playable = new PlayableChart(imported.chart, { constantVelocity });
+    judge = new ManiaJudge(playable, imported.chart.origin.values.overallDifficulty ?? 5);
     playfield?.drawLanes(playable);
     playing = false;
   }
@@ -139,18 +239,29 @@
       const positionMs = clock.isRunning ? clock.positionMs() : 0;
       const scroll = playable.scroll.positionAt(positionMs);
 
-      if (playing) {
-        // Retiring runs on time, never on screen position: a chart can hide notes
-        // entirely or freeze them in place, and both still have to be judged.
-        hud.missed += playable.retireExpired(positionMs, LATE_WINDOW_MS);
+      if (playing && judge) {
+        // Writing off expired notes runs on time, never on screen position: a chart can
+        // hide notes entirely or freeze them in place, and both still have to be judged.
+        for (const event of judge.update(positionMs)) flash(event.judgement, event.errorMs, event.column);
+
+        hud.combo = judge.combo;
+        hud.maxCombo = judge.maxCombo;
+        hud.accuracy = judge.accuracy;
+        hud.unstableRate = unstableRate(judge.errors);
+        for (const judgement of JUDGEMENTS) hud.counts[judgement] = judge.counts[judgement];
       }
 
+      playfield.drawReceptors(playable, (column) => input.isHeld(column), workStart);
       playfield.draw(playable, scroll);
 
       hud.positionMs = positionMs;
       hud.scroll = scroll;
       hud.velocity = playable.scroll.velocityAt(positionMs);
       hud.drawn = playfield.drawnCount;
+
+      if (lastJudgement && performance.now() - lastJudgementAt > JUDGEMENT_FLASH_MS) {
+        lastJudgement = null;
+      }
     }
 
     frames.recordUpdate(performance.now() - workStart);
@@ -164,15 +275,22 @@
     hud.longFrames = frames.longFrames;
   }
 
-  function onKey(event: KeyboardEvent) {
-    if (event.code === 'Space') {
+  function onKeyDown(event: KeyboardEvent) {
+    // Lane keys take precedence, so a layout that uses Space still plays.
+    if (input.handleKeyDown(event)) return;
+
+    if (event.code === 'Enter') {
       event.preventDefault();
       void start();
     }
   }
+
+  function onKeyUp(event: KeyboardEvent) {
+    input.handleKeyUp(event);
+  }
 </script>
 
-<svelte:window on:keydown={onKey} />
+<svelte:window on:keydown={onKeyDown} on:keyup={onKeyUp} />
 
 <div class="stage" bind:this={stage}></div>
 
@@ -198,6 +316,9 @@
     {travelMs} ms
   </label>
 
+  <span class="keys">
+    {imported ? defaultLayout(imported.chart.columns.length).map((k) => k.replace(/^Key/, '')).join(' ') : ''}
+  </span>
   <span class="status">{status}</span>
 </div>
 
@@ -209,8 +330,23 @@
     <div>scroll {hud.scroll.toFixed(0)}</div>
     <div>velocity {hud.velocity < 0.01 || hud.velocity > 100 ? hud.velocity.toExponential(2) : hud.velocity.toFixed(3)}x</div>
     <div>drawn {hud.drawn}</div>
-    <div>missed {hud.missed}</div>
-    <div class="dim">sync {clock.syncErrorMs.toFixed(2)} ms · rtt {clock.roundTripMs.toFixed(2)} ms</div>
+    <div class="rule"></div>
+    <div>{(hud.accuracy * 100).toFixed(2)}% · {hud.combo}x <span class="dim">(max {hud.maxCombo})</span></div>
+    <div class="dim">UR {hud.unstableRate.toFixed(1)}</div>
+    {#each JUDGEMENTS as judgement (judgement)}
+      <div class="tally"><span class="j j-{judgement}">{judgement}</span> {hud.counts[judgement]}</div>
+    {/each}
+    {#if silent}
+      <div class="dim">no audio · system clock</div>
+    {:else}
+      <div class="dim">sync {audioClock.syncErrorMs.toFixed(2)} ms · rtt {audioClock.roundTripMs.toFixed(2)} ms</div>
+      <div class="dim">
+        voices {audioClock.stats?.activeVoices ?? 0}
+        {#if (audioClock.stats?.droppedSamples ?? 0) > 0}
+          <span class="warn">· {audioClock.stats?.droppedSamples} dropped</span>
+        {/if}
+      </div>
+    {/if}
     <div class="rule"></div>
     <div>
       {hud.fps.toFixed(0)} fps
@@ -227,6 +363,15 @@
       worst update {hud.worstUpdateMs.toFixed(2)} ms
     </div>
     <div class:warn={hud.longFrames > 0}>dropped frames {hud.longFrames}</div>
+  </div>
+{/if}
+
+{#if lastJudgement}
+  <div class="flash j-{lastJudgement.judgement}">
+    {lastJudgement.judgement}
+    {#if lastJudgement.errorMs !== null}
+      <span class="offset">{lastJudgement.errorMs > 0 ? '+' : ''}{lastJudgement.errorMs.toFixed(0)} ms</span>
+    {/if}
   </div>
 {/if}
 
@@ -295,8 +440,14 @@
     width: 110px;
   }
 
-  .status {
+  .keys {
     margin-left: auto;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .status {
     color: var(--muted);
   }
 
@@ -320,6 +471,43 @@
 
   .warn {
     color: #ffb454;
+  }
+
+  .tally {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .j-perfect { color: #ffe08a; }
+  .j-great   { color: #8ad7ff; }
+  .j-good    { color: #8affa0; }
+  .j-ok      { color: #d3b8ff; }
+  .j-meh     { color: #ffb454; }
+  .j-miss    { color: #ff6b6b; }
+
+  .flash {
+    position: fixed;
+    top: 38%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-family: ui-monospace, 'IBM Plex Mono', monospace;
+    font-size: 26px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+
+  .flash .offset {
+    font-size: 13px;
+    letter-spacing: 0;
+    color: var(--muted);
+    text-transform: none;
   }
 
   .rule {

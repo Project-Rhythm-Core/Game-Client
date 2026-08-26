@@ -20,6 +20,8 @@ export interface AudioInfo {
   bufferFrames: number;
   /** Theoretical latency of one buffer at this rate, in milliseconds. */
   bufferMs: number;
+  /** Samples that could not be decoded and were loaded as silence. */
+  silentSamples: number;
 }
 
 /** A snapshot of playback state. */
@@ -35,11 +37,40 @@ export interface PlaybackStats {
   playing: boolean;
   /** The device is up to speed, so starting playback will be heard immediately. */
   ready: boolean;
+  /** Sample voices sounding right now. Non-zero means the bank really is playing. */
+  activeVoices: number;
+  /** Sounds dropped because the trigger queue backed up. Should stay at zero. */
+  droppedSamples: number;
 }
 
 /** The audio surface exposed on `window.electronAPI.audio`. */
+/** A sound the chart plays on its own, with no note to hit. */
+export interface ScheduledSoundInput {
+  timeMs: number;
+  /** Index into `samplePaths`. */
+  sample: number;
+  /** 0 to 100. */
+  volume: number;
+}
+
+/** Everything a chart needs in order to be heard. */
+export interface ChartAudioRequest {
+  /** Absent for a chart whose sound comes entirely from its samples. */
+  musicPath?: string;
+  /** Absolute paths, in the order the chart's sample indices refer to. */
+  samplePaths: string[];
+  scheduled: ScheduledSoundInput[];
+  /** Chart length, used when there is no music to measure. */
+  durationMs: number;
+}
+
 export interface AudioBridge {
   load(filePath: string): Promise<AudioInfo>;
+  /** Decode a chart's music and sample bank together, and open the device. */
+  loadChart(request: ChartAudioRequest): Promise<AudioInfo>;
+  /** Fire a sound now. Not a promise: a keypress must not wait for a round trip. */
+  playSample(sampleIndex: number, volume: number): void;
+  droppedSamples(): Promise<number>;
   play(): Promise<void>;
   restart(): Promise<void>;
   unload(): Promise<void>;
@@ -62,6 +93,8 @@ export interface ImportedChart {
   mediaDir: string;
   /** Absent for charts whose sound comes entirely from samples. */
   audioPath: string | null;
+  /** Absolute paths for the sample bank, in the order note indices refer to. */
+  samplePaths: string[];
 }
 
 export interface ChartSummary {

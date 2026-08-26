@@ -67,29 +67,53 @@ impl SampleBank {
 
     /// Rewrites each reference to a file that exists, where one can be found.
     ///
-    /// A name that resolves to nothing is kept as written: the chart may be relying on
-    /// the player's skin to supply it, which is the loader's problem, not the importer's.
+    /// Two things routinely differ between what a chart names and what it ships, and both
+    /// are silent failures on Linux:
+    ///
+    /// - **Case.** osu runs on case-insensitive filesystems, so a chart asking for
+    ///   `normal-hitnormal.wav` may well ship `Normal-Hitnormal.wav`. This is not rare;
+    ///   it is the common case for hit sounds.
+    /// - **Extension.** A chart may name a `.wav` and ship the `.ogg`.
+    ///
+    /// So the folder is indexed once by lowercase name and matched against that. A
+    /// reference that still resolves to nothing is kept as written: the chart may be
+    /// relying on the player's skin to supply it, which is the loader's problem.
     fn resolve(self, folder: Option<&Path>) -> Vec<Sample> {
         let Some(folder) = folder else {
             return self.files.into_iter().map(|file| Sample { file }).collect();
         };
 
+        let mut by_lowercase: BTreeMap<String, String> = BTreeMap::new();
+        if let Ok(entries) = std::fs::read_dir(folder) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    by_lowercase.insert(name.to_lowercase(), name.to_string());
+                }
+            }
+        }
+
         self.files
             .into_iter()
             .map(|file| {
-                if folder.join(&file).is_file() {
-                    return Sample { file };
+                let lowercase = file.to_lowercase();
+
+                if let Some(actual) = by_lowercase.get(&lowercase) {
+                    return Sample {
+                        file: actual.clone(),
+                    };
                 }
 
-                let stem = Path::new(&file)
+                let stem = Path::new(&lowercase)
                     .file_stem()
                     .and_then(|s| s.to_str())
-                    .unwrap_or(&file);
+                    .unwrap_or(&lowercase)
+                    .to_string();
 
                 for extension in SAMPLE_EXTENSIONS {
-                    let candidate = format!("{stem}.{extension}");
-                    if folder.join(&candidate).is_file() {
-                        return Sample { file: candidate };
+                    if let Some(actual) = by_lowercase.get(&format!("{stem}.{extension}")) {
+                        return Sample {
+                            file: actual.clone(),
+                        };
                     }
                 }
 
@@ -1049,6 +1073,49 @@ CircleSize:4
 
         assert_eq!(chart.timing.tempo[0].bpm, 120.0);
         assert_eq!(chart.timing.tempo[0].time_ms, 1000.0);
+    }
+
+    #[test]
+    fn sample_references_resolve_past_a_difference_in_case() {
+        // osu runs case-insensitively, so a chart naming `normal-hitnormal.wav` while
+        // shipping `Normal-Hitnormal.wav` is ordinary rather than broken.
+        let folder = std::env::temp_dir().join(format!("rc-case-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("Normal-Hitnormal.WAV"), b"").unwrap();
+
+        let mut bank = SampleBank::default();
+        bank.intern("normal-hitnormal.wav");
+        let resolved = bank.resolve(Some(&folder));
+
+        std::fs::remove_dir_all(&folder).ok();
+        assert_eq!(resolved[0].file, "Normal-Hitnormal.WAV");
+    }
+
+    #[test]
+    fn sample_references_resolve_past_a_different_extension() {
+        let folder = std::env::temp_dir().join(format!("rc-ext-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("A7S.ogg"), b"").unwrap();
+
+        let mut bank = SampleBank::default();
+        bank.intern("A7S.wav");
+        let resolved = bank.resolve(Some(&folder));
+
+        std::fs::remove_dir_all(&folder).ok();
+        assert_eq!(resolved[0].file, "A7S.ogg");
+    }
+
+    #[test]
+    fn a_reference_that_resolves_to_nothing_is_kept_as_written() {
+        let folder = std::env::temp_dir().join(format!("rc-miss-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+
+        let mut bank = SampleBank::default();
+        bank.intern("soft-hitclap.wav");
+        let resolved = bank.resolve(Some(&folder));
+
+        std::fs::remove_dir_all(&folder).ok();
+        assert_eq!(resolved[0].file, "soft-hitclap.wav", "a skin may still supply it");
     }
 
     #[test]

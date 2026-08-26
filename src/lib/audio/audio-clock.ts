@@ -1,4 +1,5 @@
-import type { AudioInfo, PlaybackStats } from './types.ts';
+import type { PlaybackClock } from './playback-clock.ts';
+import type { AudioInfo, ChartAudioRequest, PlaybackStats } from './types.ts';
 
 /**
  * Playback position, local to the renderer.
@@ -49,7 +50,7 @@ interface ClockProbe {
   originMs: number;
 }
 
-export class AudioClock {
+export class AudioClock implements PlaybackClock {
   /** The `performance.now()` value at which playback position was 0. */
   private originMs = 0;
 
@@ -88,6 +89,18 @@ export class AudioClock {
    */
   async load(filePath: string): Promise<AudioInfo> {
     this.info = await this.bridge.load(filePath);
+    return this.info;
+  }
+
+  /**
+   * Decodes a chart's music and its whole sample bank, and opens the device.
+   *
+   * Everything ends up in one stream, so a keysound and the music share a latency. It
+   * also gives a chart with no music a real clock: the device still runs, so position
+   * still advances.
+   */
+  async loadChart(request: ChartAudioRequest): Promise<AudioInfo> {
+    this.info = await this.bridge.loadChart(request);
     return this.info;
   }
 

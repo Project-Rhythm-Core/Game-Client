@@ -6,12 +6,14 @@
 //! a chart is being selected rather than when it starts.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use super::clock::{PlaybackClock, now_nanos};
 use super::decoder::DecodedAudio;
 use super::device::{self, DeviceStream};
+use super::mixer::{Mixer, ScheduledSound, TriggerQueue};
 
 /// Shortest measurement window before the hardware rate estimate is believed.
 ///
@@ -52,6 +54,11 @@ pub struct AudioEngine {
     _stream: cpal::Stream,
     clock: Arc<PlaybackClock>,
     info: StreamInfo,
+    /// How sounds reach the audio thread from wherever input is handled.
+    triggers: Arc<TriggerQueue>,
+    /// Voices sounding as of the last callback. Published so the state of the mix is
+    /// observable from outside the audio thread.
+    active_voices: Arc<AtomicUsize>,
 }
 
 // cpal::Stream is not Send on every backend. The stream is created and dropped only
@@ -63,8 +70,22 @@ pub struct AudioEngine {
 unsafe impl Send for AudioEngine {}
 
 impl AudioEngine {
-    /// Opens the default output device and starts the stream, initially silent.
+    /// Opens the device for a chart with a background track and nothing else.
     pub fn prepare(audio: DecodedAudio) -> Result<Self, String> {
+        Self::prepare_with_samples(Some(audio), Vec::new(), Vec::new(), 0.0)
+    }
+
+    /// Opens the default output device and starts the stream, initially silent.
+    ///
+    /// `music` is optional: a fully keysounded chart has no background track, and its
+    /// entire soundtrack is the sample bank. `duration_ms` gives such a chart a length,
+    /// since there is no track to measure.
+    pub fn prepare_with_samples(
+        music: Option<DecodedAudio>,
+        samples: Vec<DecodedAudio>,
+        scheduled: Vec<(f64, u32, f32)>,
+        duration_ms: f64,
+    ) -> Result<Self, String> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -74,10 +95,40 @@ impl AudioEngine {
             .default_output_config()
             .map_err(|e| format!("could not read the default output configuration: {e}"))?;
 
-        let stream_config = device::negotiate(&device, audio, &default_config)?;
+        // A keysounded chart has no music to negotiate against, so a single silent frame
+        // stands in: the device's own defaults then decide the format.
+        let negotiation_source = music.unwrap_or_else(|| DecodedAudio {
+            samples: vec![0.0; default_config.channels() as usize],
+            sample_rate: default_config.sample_rate(),
+            channels: default_config.channels(),
+        });
+
+        let stream_config = device::negotiate(&device, negotiation_source, &default_config)?;
+
+        // Every sound has to reach the device's own format before it can be mixed.
+        let bank: Vec<Arc<[f32]>> = samples
+            .into_iter()
+            .map(|sample| {
+                Arc::from(device::adapt_to(
+                    sample,
+                    stream_config.sample_rate,
+                    stream_config.channels,
+                ))
+            })
+            .collect();
+
+        let frames_per_ms = stream_config.sample_rate as f64 / 1000.0;
+        let scheduled: Vec<ScheduledSound> = scheduled
+            .into_iter()
+            .map(|(time_ms, sample_index, volume)| ScheduledSound {
+                frame: (time_ms.max(0.0) * frames_per_ms) as u64,
+                sample_index,
+                volume,
+            })
+            .collect();
 
         let info = StreamInfo {
-            duration_ms: stream_config.duration_ms(),
+            duration_ms: stream_config.duration_ms().max(duration_ms),
             sample_rate: stream_config.sample_rate,
             channels: stream_config.channels,
             device_name: device
@@ -89,7 +140,20 @@ impl AudioEngine {
         };
 
         let clock = Arc::new(PlaybackClock::default());
-        let stream = build_stream(&device, stream_config, clock.clone())?;
+        let triggers = Arc::new(TriggerQueue::new());
+        let active_voices = Arc::new(AtomicUsize::new(0));
+        let mixer = Mixer::new(bank, scheduled, stream_config.channels);
+
+        let total_frames = (info.duration_ms * frames_per_ms) as usize;
+        let stream = build_stream(
+            &device,
+            stream_config,
+            clock.clone(),
+            mixer,
+            triggers.clone(),
+            active_voices.clone(),
+            total_frames,
+        )?;
 
         stream
             .play()
@@ -99,7 +163,27 @@ impl AudioEngine {
             _stream: stream,
             clock,
             info,
+            triggers,
+            active_voices,
         })
+    }
+
+    /// Queues a sound to play as soon as the audio thread next runs.
+    ///
+    /// This is the path a keypress takes. It cannot be scheduled any more precisely than
+    /// the next buffer, because the press has already happened by the time it gets here.
+    pub fn play_sample(&self, sample_index: u32, volume: f32) {
+        self.triggers.push(sample_index, volume);
+    }
+
+    /// Sounds dropped because the queue backed up. Should stay at zero.
+    pub fn dropped_triggers(&self) -> usize {
+        self.triggers.dropped_count()
+    }
+
+    /// Voices sounding as of the last callback.
+    pub fn active_voices(&self) -> usize {
+        self.active_voices.load(Ordering::Relaxed)
     }
 
     pub fn info(&self) -> &StreamInfo {
@@ -131,6 +215,10 @@ fn build_stream(
     device: &cpal::Device,
     stream: DeviceStream,
     clock: Arc<PlaybackClock>,
+    mut mixer: Mixer,
+    triggers: Arc<TriggerQueue>,
+    active_voices: Arc<AtomicUsize>,
+    chart_frames: usize,
 ) -> Result<cpal::Stream, String> {
     let DeviceStream {
         samples,
@@ -142,7 +230,10 @@ fn build_stream(
 
     let channels = channels as usize;
     let sample_rate = sample_rate as u64;
-    let total_frames = samples.len() / channels;
+
+    // A keysounded chart has no music, so its length comes from the chart rather than
+    // from a buffer of music samples.
+    let total_frames = (samples.len() / channels).max(chart_frames);
 
     // State private to the audio thread. None of it is shared, so none of it is atomic.
     //
@@ -243,6 +334,7 @@ fn build_stream(
                 if let Some(target_frame) = clock.take_pending_seek() {
                     playback_cursor = (target_frame as usize).min(total_frames);
                     clock.reset_anchor();
+                    mixer.rewind_to(playback_cursor as u64);
                 }
 
                 // --- Fill the buffer ----------------------------------------------
@@ -255,10 +347,22 @@ fn build_stream(
                     // Past the end of the song the tail is zero-filled, so playback
                     // simply goes quiet. There is no end-of-track signal; callers
                     // compare position against duration themselves.
-                    let start = playback_cursor * channels;
-                    let available = samples.len().saturating_sub(start).min(output.len());
+                    // Clamping the start is load-bearing, not defensive: slicing from
+                    // beyond the end panics even when the range is empty. A keysounded
+                    // chart's music is a one-frame placeholder while its cursor runs the
+                    // whole length of the chart, so the cursor is past the end almost
+                    // immediately — and a panic here kills the audio thread outright.
+                    let start = (playback_cursor * channels).min(samples.len());
+                    let available = (samples.len() - start).min(output.len());
                     output[..available].copy_from_slice(&samples[start..start + available]);
                     output[available..].fill(0.0);
+
+                    // Keysounds and the scheduled accompaniment go into the *same* buffer
+                    // as the music. Routing them anywhere else would give them their own
+                    // latency, and the game would feel wrong however accurate the
+                    // judgement was.
+                    mixer.mix(output, playback_cursor as u64, &triggers);
+                    active_voices.store(mixer.active_voices(), Ordering::Relaxed);
 
                     playback_cursor =
                         (playback_cursor + frames_this_callback as usize).min(total_frames);

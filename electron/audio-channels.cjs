@@ -14,6 +14,11 @@ const AUDIO_CHANNEL = Object.freeze({
   setOffsetMs: 'audio:set-offset-ms',
   position: 'audio:position',
   stats: 'audio:stats',
+  /** Load a chart's music and its whole sample bank in one go. */
+  loadChart: 'audio:load-chart',
+  /** Fire one sound from the bank immediately. */
+  playSample: 'audio:play-sample',
+  droppedSamples: 'audio:dropped-samples',
 });
 
 /** @type {Readonly<Record<string, string>>} */

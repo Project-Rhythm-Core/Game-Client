@@ -20,6 +20,13 @@ function registerAudioHandlers() {
   ipcMain.handle(CHANNEL.setOffsetMs, (_event, offsetMs) => engine.setOffsetMs(offsetMs));
   ipcMain.handle(CHANNEL.position, () => engine.getPositionMs());
   ipcMain.handle(CHANNEL.stats, () => engine.getStats());
+  ipcMain.handle(CHANNEL.loadChart, (_event, request) => engine.loadChartAudio(request));
+  // Fired on every keypress that lands on a keysounded note, so it must stay a
+  // fire-and-forget send rather than a round trip the renderer waits on.
+  ipcMain.on(CHANNEL.playSample, (_event, sampleIndex, volume) =>
+    engine.playSample(sampleIndex, volume),
+  );
+  ipcMain.handle(CHANNEL.droppedSamples, () => engine.droppedSampleCount());
 }
 
 /**

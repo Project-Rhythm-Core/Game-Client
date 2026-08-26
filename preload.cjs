@@ -16,6 +16,15 @@ const audio = {
   setOffsetMs: (offsetMs) => ipcRenderer.invoke(AUDIO_CHANNEL.setOffsetMs, offsetMs),
   position: () => ipcRenderer.invoke(AUDIO_CHANNEL.position),
   stats: () => ipcRenderer.invoke(AUDIO_CHANNEL.stats),
+  /** Decode a chart's music and sample bank together, and open the device. */
+  loadChart: (request) => ipcRenderer.invoke(AUDIO_CHANNEL.loadChart, request),
+  /**
+   * Fire a sound now. Deliberately not a promise: a keypress must not wait for a round
+   * trip before the sound is on its way.
+   */
+  playSample: (sampleIndex, volume) =>
+    ipcRenderer.send(AUDIO_CHANNEL.playSample, sampleIndex, volume),
+  droppedSamples: () => ipcRenderer.invoke(AUDIO_CHANNEL.droppedSamples),
 };
 
 // Charts are converted in the main process and arrive already in the game's format.
