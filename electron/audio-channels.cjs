@@ -29,4 +29,10 @@ const CHART_CHANNEL = Object.freeze({
   listBundled: 'chart:list-bundled',
 });
 
-module.exports = { AUDIO_CHANNEL, CHART_CHANNEL };
+/** @type {Readonly<Record<string, string>>} */
+const SKIN_CHANNEL = Object.freeze({
+  /** The active skin's identity and its visual theme. */
+  active: 'skin:active',
+});
+
+module.exports = { AUDIO_CHANNEL, CHART_CHANNEL, SKIN_CHANNEL };

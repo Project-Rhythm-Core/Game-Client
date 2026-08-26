@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { CHART_CHANNEL } = require('./audio-channels.cjs');
+const { CHART_CHANNEL, SKIN_CHANNEL } = require('./audio-channels.cjs');
 const skin = require('./skin.cjs');
 const core = require('../rust-core/rust-core.node');
 
@@ -80,6 +80,10 @@ function registerChartHandlers() {
 
   ipcMain.handle(CHART_CHANNEL.listBundled, () => listBundled());
   ipcMain.handle(CHART_CHANNEL.importOsu, (_event, sourcePath) => importOsu(sourcePath));
+  ipcMain.handle(SKIN_CHANNEL.active, () => {
+    const s = skin.activeSkin();
+    return s ? { id: s.id, name: s.name, author: s.author, theme: skin.themeFor('osu') } : null;
+  });
 }
 
 module.exports = { registerChartHandlers };

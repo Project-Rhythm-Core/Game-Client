@@ -7,7 +7,7 @@
   import { PlayableChart } from './lib/chart/playable-chart.ts';
   import { ColumnInput, JUDGEMENTS, ManiaJudge, defaultLayout, unstableRate } from './lib/gameplay/index.ts';
   import type { Judgement } from './lib/gameplay/index.ts';
-  import { FrameCounter, Playfield } from './lib/render/index.ts';
+  import { FrameCounter, Playfield, SkinTheme } from './lib/render/index.ts';
 
   /** How long a judgement stays on screen. */
   const JUDGEMENT_FLASH_MS = 500;
@@ -44,6 +44,7 @@
    * Nothing here is mutated in place; these are replaced wholesale, which raw state
    * still reacts to.
    */
+  let skinTheme = $state.raw<SkinTheme | null>(null);
   let judge = $state.raw<ManiaJudge | null>(null);
   const input = new ColumnInput(audioClock, {
     onPress: (column, songTimeMs) => {
@@ -120,6 +121,15 @@
     });
     stage.appendChild(app.canvas);
     playfield = new Playfield(app, { travelMs });
+
+    // The skin is optional: without one the playfield draws flat colour, so a failure
+    // here costs appearance and nothing else.
+    try {
+      skinTheme = await SkinTheme.load();
+      playfield.setSkin(skinTheme);
+    } catch (e) {
+      console.warn('could not load the skin:', e);
+    }
 
     app.ticker.add(tick);
     window.addEventListener('resize', onResize);
@@ -319,7 +329,7 @@
   <span class="keys">
     {imported ? defaultLayout(imported.chart.columns.length).map((k) => k.replace(/^Key/, '')).join(' ') : ''}
   </span>
-  <span class="status">{status}</span>
+  <span class="status">{skinTheme ? skinTheme.name + " · " : ""}{status}</span>
 </div>
 
 {#if playable}

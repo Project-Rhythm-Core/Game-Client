@@ -3,12 +3,18 @@ const path = require('path');
 
 const { registerAudioHandlers, releaseAudio } = require('./electron/audio-ipc.cjs');
 const { registerChartHandlers } = require('./electron/chart-ipc.cjs');
+const skin = require('./electron/skin.cjs');
+const appProtocol = require('./electron/app-protocol.cjs');
 
 // Chromium throttles rAF and timers in windows that do not have focus. In a rhythm game
 // that desynchronises the picture from the audio the moment the player alt-tabs away.
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
+// Both schemes have to be declared before the app is ready; they are served afterwards.
+appProtocol.registerAppScheme();
+skin.registerSkinScheme();
 
 /** Set when running against the vite dev server instead of a production build. */
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -39,13 +45,16 @@ function createWindow() {
     win.loadURL(DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    win.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    // Served rather than loaded from disk, so the page has a real origin.
+    win.loadURL(appProtocol.APP_URL);
   }
 
   return win;
 }
 
 app.whenReady().then(() => {
+  appProtocol.serveApp();
+  skin.serveSkinFiles();
   registerAudioHandlers();
   registerChartHandlers();
   createWindow();

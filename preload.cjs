@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const { AUDIO_CHANNEL, CHART_CHANNEL } = require('./electron/audio-channels.cjs');
+const { AUDIO_CHANNEL, CHART_CHANNEL, SKIN_CHANNEL } = require('./electron/audio-channels.cjs');
 
 // Mirrors the audio IPC surface into the renderer. Everything returns a promise,
 // including the void operations, because it all crosses ipcRenderer.invoke.
@@ -35,4 +35,10 @@ const chart = {
   listBundled: () => ipcRenderer.invoke(CHART_CHANNEL.listBundled),
 };
 
-contextBridge.exposeInMainWorld('electronAPI', { audio, chart });
+// Skin files reach the renderer through the `skin://` scheme; only the description of
+// what to load crosses IPC.
+const skin = {
+  active: () => ipcRenderer.invoke(SKIN_CHANNEL.active),
+};
+
+contextBridge.exposeInMainWorld('electronAPI', { audio, chart, skin });

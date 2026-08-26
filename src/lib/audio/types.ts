@@ -119,11 +119,25 @@ export interface ChartBridge {
   listBundled(): Promise<BundledChart[]>;
 }
 
+/** The skin currently in use, and its visual theme. */
+export interface ActiveSkin {
+  id: string;
+  name: string;
+  author: string;
+  /** Parsed from the skin's `osu.yaml`; `null` when it styles nothing. */
+  theme: unknown | null;
+}
+
+export interface SkinBridge {
+  active(): Promise<ActiveSkin | null>;
+}
+
 declare global {
   interface Window {
     electronAPI: {
       audio: AudioBridge;
       chart: ChartBridge;
+      skin: SkinBridge;
     };
   }
 }

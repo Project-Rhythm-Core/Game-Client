@@ -458,6 +458,15 @@ pub fn read_skin_manifest(skin_dir: String) -> Result<SkinSummary> {
     })
 }
 
+/// Reads a skin package's visual theme for one source format, as JSON.
+///
+/// Returns `null` when the skin has no theme for that format, which is ordinary: a skin
+/// may provide only sounds.
+#[napi]
+pub fn read_skin_theme(skin_dir: String, format: String) -> Option<String> {
+    skin::osu::read_theme_json(&skin_dir, &format).ok()
+}
+
 /// Reads a skin's sound bank, as absolute paths keyed by the name a chart asks for.
 ///
 /// This is the fallback for a chart that names a sound it does not ship — which is not an

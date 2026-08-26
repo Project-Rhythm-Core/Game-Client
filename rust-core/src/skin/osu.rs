@@ -254,6 +254,23 @@ pub fn read_manifest(skin_dir: &str) -> Result<SkinManifest, String> {
     serde_norway::from_str(&text).map_err(|e| format!("could not parse '{}': {e}", path.display()))
 }
 
+/// Reads a package's visual theme as JSON.
+///
+/// JSON rather than a typed binding because the theme is deeply nested and entirely
+/// optional at every level; the renderer wants the whole tree, not a flattened view of
+/// it. YAML is still parsed in one place — here — so the format has a single reader.
+pub fn read_theme_json(skin_dir: &str, format: &str) -> Result<String, String> {
+    let path = Path::new(skin_dir).join(format!("{format}.yaml"));
+
+    let text = fs::read_to_string(&path)
+        .map_err(|e| format!("could not read '{}': {e}", path.display()))?;
+
+    let theme: Theme = serde_norway::from_str(&text)
+        .map_err(|e| format!("could not parse '{}': {e}", path.display()))?;
+
+    serde_json::to_string(&theme).map_err(|e| format!("could not encode the theme: {e}"))
+}
+
 /// Reads a skin's sound bank back.
 pub fn read_sound_bank(skin_dir: &str) -> Result<BTreeMap<String, String>, String> {
     let path = Path::new(skin_dir).join("sounds.yaml");
@@ -453,6 +470,83 @@ mod tests {
         assert!(out.join("assets/sounds/normal-hitnormal.wav").is_file());
     }
 
+    /// A real body image: an empty percy margin, then a fade, then the steady pattern.
+    fn percy_body(height: u32, clear: u32, fade: u32) -> image::DynamicImage {
+        use image::{Rgba, RgbaImage};
+
+        let mut source = RgbaImage::new(4, height);
+        for y in 0..height {
+            let alpha = if y < clear {
+                0
+            } else if y < clear + fade {
+                ((y - clear) * 255 / fade) as u8
+            } else {
+                255
+            };
+            for x in 0..4 {
+                source.put_pixel(x, y, Rgba([10, 20, 30, alpha]));
+            }
+        }
+
+        image::DynamicImage::ImageRgba8(source)
+    }
+
+    #[test]
+    fn a_hold_body_keeps_none_of_its_lead_in() {
+        let strip = body_strip(&percy_body(2000, 120, 95)).expect("cropped");
+
+        assert!(strip.height() <= MAX_BODY_HEIGHT, "must fit on a GPU");
+
+        // Neither the empty margin nor the fade survives: every row is the steady
+        // pattern, so tiling it cannot band the note.
+        let rgba = strip.to_rgba8();
+        for y in 0..strip.height() {
+            assert_eq!(rgba.get_pixel(0, y).0[3], 255, "row {y} should be fully opaque");
+        }
+    }
+
+    #[test]
+    fn the_strip_comes_from_the_bottom_where_the_pattern_is_steady() {
+        use image::{Rgba, RgbaImage};
+
+        // Distinct rows, so where the strip was taken from is visible in the result.
+        let mut source = RgbaImage::new(1, 1000);
+        for y in 0..1000 {
+            source.put_pixel(0, y, Rgba([(y % 251) as u8, 0, 0, 255]));
+        }
+
+        let strip = body_strip(&image::DynamicImage::ImageRgba8(source)).expect("cropped");
+        let rgba = strip.to_rgba8();
+
+        assert_eq!(strip.height(), MAX_BODY_HEIGHT);
+        assert_eq!(rgba.get_pixel(0, strip.height() - 1).0[0], (999 % 251) as u8);
+    }
+
+    #[test]
+    fn a_body_that_is_already_reasonable_is_left_alone() {
+        use image::{Rgba, RgbaImage};
+
+        let mut source = RgbaImage::new(4, 64);
+        for y in 0..64 {
+            for x in 0..4 {
+                source.put_pixel(x, y, Rgba([1, 2, 3, 255]));
+            }
+        }
+
+        assert!(
+            body_strip(&image::DynamicImage::ImageRgba8(source)).is_none(),
+            "no margin and small enough: copy it untouched",
+        );
+    }
+
+    #[test]
+    fn a_fully_transparent_body_is_not_cropped_into_nothing() {
+        use image::RgbaImage;
+
+        let source = RgbaImage::new(4, 500);
+        assert!(body_strip(&image::DynamicImage::ImageRgba8(source)).is_none());
+    }
+
     #[test]
     fn a_skin_with_no_sounds_still_imports() {
         let source = temp("nosound").join("s");
@@ -491,14 +585,19 @@ mod tests {
 
 /// Longest a hold-body strip is kept, in pixels.
 ///
-/// Source bodies are absurdly tall — 20 000 px is typical, 40 000 happens — because osu
-/// stretches them down the note. Two things make that unusable here: 20 000 exceeds the
-/// maximum texture dimension of every common GPU, and a 128x20 000 texture is 9.8 MB of
-/// video memory for what is, below its cap, a single repeated row.
+/// Source bodies are absurdly tall — 20 000 px is typical, 40 000 happens — and that is
+/// not an accident of authoring. It is how a "percy" body works: the top of the image is
+/// left transparent, and stretched down the length of a note that sliver becomes a
+/// visible gap, so the note looks shorter than it is while still ending where it ends.
 ///
-/// So a body is cropped to its cap plus a little of the steady pattern and tiled instead.
-/// On the reference skin that is lossless: everything below row 215 is the same pixel.
+/// Two reasons that cannot come across as-is. 20 000 exceeds the maximum texture
+/// dimension of every common GPU, so it would not upload at all; and this format should
+/// describe a hold body, not bake one skin's visual trick into every note drawn with it.
+/// If percy is wanted later it belongs in the renderer, where it can be turned off.
 const MAX_BODY_HEIGHT: u32 = 256;
+
+/// Alpha above which a row counts as visible, out of 255.
+const VISIBLE_ALPHA: u8 = 8;
 
 /// Extensions to try for an image reference, which skins routinely write without one.
 const IMAGE_EXTENSIONS: [&str; 3] = ["png", "jpg", "jpeg"];
@@ -619,8 +718,7 @@ fn copy_texture(
 
     if is_body {
         if let Ok(image) = image::open(source_path) {
-            if image.height() > MAX_BODY_HEIGHT {
-                let strip = image.crop_imm(0, 0, image.width(), MAX_BODY_HEIGHT);
+            if let Some(strip) = body_strip(&image) {
                 // Always PNG once re-encoded: the source may be a JPEG, and a body needs
                 // its alpha channel.
                 let png_name = format!("{name}.png");
@@ -636,6 +734,40 @@ fn copy_texture(
         .map_err(|e| format!("could not copy '{}': {e}", source_path.display()))?;
 
     Ok(format!("assets/osu/{file_name}"))
+}
+
+/// Reduces a hold body to a short strip that tiles cleanly.
+///
+/// The strip is taken from the **bottom** of the image, and that is the whole trick.
+/// Everything a body image does at its top is a lead-in: the transparent margin of a
+/// percy body, and the fade that usually follows it. The bottom is the steady pattern the
+/// body is actually made of, which is what a well-behaved skin ships on its own — dpjam's
+/// `WhiteL.jpg` is 44x3 pixels of flat colour and nothing else.
+///
+/// Taking the top instead ruins the result twice over. It keeps the percy gap, and worse,
+/// it captures the fade — which then repeats on every tile and bands the whole note.
+///
+/// Returns `None` when the image is already short enough to use untouched.
+fn body_strip(image: &image::DynamicImage) -> Option<image::DynamicImage> {
+    use image::GenericImageView;
+
+    let (width, height) = image.dimensions();
+    let rgba = image.to_rgba8();
+
+    let row_is_visible =
+        |y: u32| (0..width).any(|x| rgba.get_pixel(x, y).0[3] > VISIBLE_ALPHA);
+
+    // A transparent bottom margin would tile as a gap, so it goes too.
+    let last = (0..height).rev().find(|y| row_is_visible(*y))?;
+    let first = (0..=last).find(|y| row_is_visible(*y))?;
+
+    let visible = last - first + 1;
+    if visible <= MAX_BODY_HEIGHT && first == 0 && last == height - 1 {
+        return None;
+    }
+
+    let kept = visible.min(MAX_BODY_HEIGHT);
+    Some(image.crop_imm(0, last + 1 - kept, width, kept))
 }
 
 /// Turns `r,g,b[,a]` into `#rrggbbaa`.

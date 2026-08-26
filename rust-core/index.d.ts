@@ -151,6 +151,14 @@ export declare function playSample(sampleIndex: number, volume: number): void
 export declare function readSkinManifest(skinDir: string): SkinSummary
 
 /**
+ * Reads a skin package's visual theme for one source format, as JSON.
+ *
+ * Returns `null` when the skin has no theme for that format, which is ordinary: a skin
+ * may provide only sounds.
+ */
+export declare function readSkinTheme(skinDir: string, format: string): string | null
+
+/**
  * Returns to the beginning without reopening the device.
  *
  * `getPositionMs()` reports `0` from the moment this returns, rather than from when
