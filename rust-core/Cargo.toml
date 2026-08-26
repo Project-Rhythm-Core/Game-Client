@@ -1,0 +1,18 @@
+[package]
+name = "rust-core"
+version = "0.1.0"
+edition = "2024"
+
+# Built as a Node native addon, loaded by the Electron main process.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cpal = "0.18.2"
+napi = { version = "3.12.2", default-features = false, features = ["napi4"] }
+napi-derive = "3.6.3"
+once_cell = "1.21.4"
+symphonia = { version = "0.6.1", features = ["mp3", "ogg", "wav", "flac"] }
+
+[build-dependencies]
+napi-build = "2.4.1"
