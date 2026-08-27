@@ -515,6 +515,47 @@ mod tests {
     }
 
     #[test]
+    fn a_subfolder_resolves_however_the_skin_capitalises_it() {
+        // The reference Nabos skin writes `4K\\1` for its notes and `4k\\keyL` for its
+        // hold bodies in the same file. Windows cannot tell the two apart; Linux can.
+        let source = temp("dircase").join("s");
+        fs::create_dir_all(source.join("4K")).unwrap();
+        image::RgbaImage::new(4, 4).save(source.join("4K").join("note.png")).unwrap();
+
+        for reference in ["4K/note", "4k/note", "4K\\note", "4k\\NOTE"] {
+            assert!(
+                resolve_image(&source, reference).is_some(),
+                "'{reference}' should resolve"
+            );
+        }
+
+        assert!(resolve_image(&source, "5K/note").is_none());
+        assert!(resolve_image(&source, "4K/missing").is_none());
+    }
+
+    #[test]
+    fn a_texture_the_browser_cannot_decode_is_not_packaged_as_is() {
+        // A file whose extension lies: shipping it would fail at play time, where it
+        // reads as a renderer bug rather than as this skin being malformed.
+        let source = temp("liar").join("s");
+        fs::create_dir_all(&source).unwrap();
+        let path = source.join("body.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]))
+            .save_with_format(&path, image::ImageFormat::Tiff)
+            .unwrap();
+
+        let assets = temp("liar-out");
+        let stored = copy_texture(&path, &assets, "body", false).unwrap();
+
+        // Re-encoded under a `.png` name, and genuinely a PNG this time.
+        assert_eq!(stored, "assets/osu/body.png");
+        assert_eq!(
+            guessed_format(&assets.join("body.png")),
+            Some(image::ImageFormat::Png)
+        );
+    }
+
+    #[test]
     fn indented_keys_are_read() {
         let source = temp("indent").join("s");
         fs::create_dir_all(&source).unwrap();
@@ -879,7 +920,7 @@ fn resolve_image(source: &Path, reference: &str) -> Option<PathBuf> {
     let normalised = normalised.trim().trim_start_matches("./");
 
     let (dir, stem) = match normalised.rsplit_once('/') {
-        Some((dir, stem)) => (source.join(dir), stem.to_string()),
+        Some((dir, stem)) => (resolve_dir(source, dir)?, stem.to_string()),
         None => (source.to_path_buf(), normalised.to_string()),
     };
 
@@ -919,6 +960,38 @@ fn resolve_image(source: &Path, reference: &str) -> Option<PathBuf> {
     index.get(&stem).cloned()
 }
 
+/// Walks a subdirectory path, matching each segment without regard to case.
+///
+/// The filename lookup below is already case-insensitive, but the directory leading to it
+/// was joined verbatim, so a skin that disagrees with itself about a folder's case lost
+/// every reference through it. That is not hypothetical: the reference Nabos skin writes
+/// `4K\\1` for its notes and `4k\\keyL` for its hold bodies, in the same file. osu never
+/// notices because Windows does not, and on Linux the bodies simply vanished.
+fn resolve_dir(source: &Path, dir: &str) -> Option<PathBuf> {
+    let mut current = source.to_path_buf();
+
+    for segment in dir.split('/').filter(|s| !s.is_empty() && *s != ".") {
+        let candidate = current.join(segment);
+        if candidate.is_dir() {
+            current = candidate;
+            continue;
+        }
+
+        // Only pay for the listing when the literal name missed.
+        let wanted = segment.to_lowercase();
+        let matched = fs::read_dir(&current).ok()?.flatten().find(|entry| {
+            entry.file_name().to_str().is_some_and(|n| n.to_lowercase() == wanted)
+        })?;
+
+        if !matched.path().is_dir() {
+            return None;
+        }
+        current = matched.path();
+    }
+
+    Some(current)
+}
+
 /// Copies one texture into the package, cropping a hold body down to a tileable strip.
 ///
 /// Returns the path to record in the theme, relative to the skin folder.
@@ -937,17 +1010,36 @@ fn copy_texture(
     let file_name = format!("{name}.{extension}");
     let target = assets_dir.join(&file_name);
 
-    if is_body {
-        if let Ok(image) = image::open(source_path) {
-            if let Some(strip) = body_strip(&image) {
+    // A skin may ship a file whose extension lies about its contents: the reference Nabos
+    // skin's hold body is a 22 MB TIFF called `keyL.png`. The renderer hands textures
+    // straight to the browser, which decodes by content rather than by name and refuses
+    // what it does not recognise, so one of those has to be re-encoded rather than copied.
+    let unusable = !guessed_format(source_path).is_some_and(is_web_decodable);
+
+    if is_body || unusable {
+        if let Ok(image) = decode_image(source_path) {
+            let strip = if is_body { body_strip(&image) } else { None };
+
+            if strip.is_some() || unusable {
                 // Always PNG once re-encoded: the source may be a JPEG, and a body needs
                 // its alpha channel.
                 let png_name = format!("{name}.png");
                 strip
+                    .as_ref()
+                    .unwrap_or(&image)
                     .save(assets_dir.join(&png_name))
                     .map_err(|e| format!("could not write '{png_name}': {e}"))?;
                 return Ok(format!("assets/osu/{png_name}"));
             }
+        } else if unusable {
+            // Copying it anyway would put a texture in the package that fails to load at
+            // play time, which reads as a bug in the renderer. Dropping it instead lets
+            // the column fall back to flat colour, which is a result the player can see
+            // and the importer can report.
+            return Err(format!(
+                "'{}' is not an image the renderer can decode",
+                source_path.display()
+            ));
         }
     }
 
@@ -955,6 +1047,44 @@ fn copy_texture(
         .map_err(|e| format!("could not copy '{}': {e}", source_path.display()))?;
 
     Ok(format!("assets/osu/{file_name}"))
+}
+
+/// The real format of a file, read from its contents rather than its name.
+fn guessed_format(path: &Path) -> Option<image::ImageFormat> {
+    reader(path)?.format()
+}
+
+/// Decodes an image by what it *is* rather than by what it is called.
+///
+/// `image::open` picks its decoder from the file extension, so a mislabelled file fails
+/// with an error about the format it was never in. Skins mislabel files routinely, which
+/// makes reading the magic bytes the only reliable way in.
+fn decode_image(path: &Path) -> Result<image::DynamicImage, String> {
+    reader(path)
+        .ok_or_else(|| format!("could not read '{}'", path.display()))?
+        .decode()
+        .map_err(|e| format!("could not decode '{}': {e}", path.display()))
+}
+
+/// Dimensions of an image, again by content rather than by name.
+fn image_dimensions(path: &Path) -> Option<(u32, u32)> {
+    reader(path)?.into_dimensions().ok()
+}
+
+fn reader(path: &Path) -> Option<image::ImageReader<std::io::BufReader<fs::File>>> {
+    image::ImageReader::open(path).ok()?.with_guessed_format().ok()
+}
+
+/// Whether a browser can decode this format, which is what the renderer ultimately needs.
+fn is_web_decodable(format: image::ImageFormat) -> bool {
+    matches!(
+        format,
+        image::ImageFormat::Png
+            | image::ImageFormat::Jpeg
+            | image::ImageFormat::Gif
+            | image::ImageFormat::WebP
+            | image::ImageFormat::Bmp
+    )
 }
 
 /// Reduces a hold body to a short strip that tiles cleanly.
@@ -1021,7 +1151,7 @@ const DEFAULT_SCORE_POSITION: f64 = 300.0;
 /// that again, so the file's own pixel height is never the answer on its own.
 fn virtual_height(source: &Path, reference: &str) -> Option<f64> {
     let path = resolve_image(source, reference)?;
-    let (_, pixels) = image::image_dimensions(&path).ok()?;
+    let (_, pixels) = image_dimensions(&path)?;
 
     let doubled = path
         .file_stem()

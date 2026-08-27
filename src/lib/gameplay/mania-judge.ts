@@ -125,9 +125,14 @@ export class ManiaJudge {
 
     // The head has already been judged — missed, since a hit head would be holding.
     // Grabbing the note late is allowed as long as the tail is still to come.
+    //
+    // The release lenience deliberately does *not* apply here. It widens the window the
+    // tail is judged in and delays its miss, but osu refuses to start a hold inside that
+    // extra time: `DrawableHoldNote.OnPressed` tests the tail's plain `CanBeHit`. So the
+    // tail can still be written off later than a hold can be picked up.
     if (isHold && this.playable.tailStates[noteIndex] === NoteState.Pending) {
-      const tailDeadline = note.endMs! + this.windows.missAfterMs(RELEASE_WINDOW_LENIENCE);
-      if (timeMs <= tailDeadline) this.activeHold[column] = noteIndex;
+      const grabDeadline = note.endMs! + this.windows.missAfterMs();
+      if (timeMs <= grabDeadline) this.activeHold[column] = noteIndex;
     }
 
     return null;

@@ -33,6 +33,50 @@ function measureLanes(
   };
 }
 
+/**
+ * Where a note's centre goes, extracted from the playfield so it needs no canvas.
+ *
+ * Mirrors `noteCentreY`. osu rests an *edge* of the graphic on the hit line rather than
+ * its middle: every note anchors BottomCentre on downscroll, except the hold tail, which
+ * `DrawableHoldNoteTail` anchors TopCentre so its cap drops back into the hold.
+ */
+function noteCentreY(height: number, lineY: number, hangsDown: boolean): number {
+  return hangsDown ? lineY + height / 2 : lineY - height / 2;
+}
+
+test('a note rests its bottom edge on the hit line, not its middle', () => {
+  const line = 900;
+  const height = 140;
+
+  const centre = noteCentreY(height, line, false);
+
+  assert.equal(centre + height / 2, line, 'the bottom edge is what lands on the line');
+  assert.ok(centre < line, 'so the note sits entirely above it');
+});
+
+test('a hold tail hangs back into the hold from its own line', () => {
+  const line = 300;
+  const height = 80;
+
+  const centre = noteCentreY(height, line, true);
+
+  assert.equal(centre - height / 2, line, 'the top edge is what lands on the line');
+  assert.ok(centre > line, 'so the cap drops towards the head');
+});
+
+test('centring a note on the line instead would draw it visibly late', () => {
+  // The bug this replaced. A square note in a 70-unit lane, a hit line 430 units down and
+  // 700 ms of travel: half a note height is 57 ms of apparent lateness, which is wider
+  // than a GREAT window at any OD and reads as the whole game being late.
+  const laneWidth = 70;
+  const noteHeight = laneWidth; // square texture
+  const unitsPerMs = 430 / 700;
+
+  const lateBy = noteHeight / 2 / unitsPerMs;
+
+  assert.ok(lateBy > 55 && lateBy < 58, `got ${lateBy} ms`);
+});
+
 test('every lane gets a finite position', () => {
   const { x } = measureLanes(1920, 982, new Array(10).fill(50), [0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0]);
 

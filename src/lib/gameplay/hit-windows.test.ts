@@ -63,13 +63,16 @@ test('judgements step down through the windows', () => {
   assert.equal(windows.judge(90), 'ok');
 });
 
-test('a late MEH is impossible', () => {
+test('every window is symmetric about the note', () => {
+  // osu's ResultFor opens with Math.Abs(timeOffset), so late reads exactly like early.
+  // This used to cut MEH and MISS off the late side, costing a 24 ms band of combo.
   const windows = new ManiaHitWindows(8);
-  const ok = windows.windowFor('ok');
 
-  // The same distance from the note reads differently either side of it.
-  assert.equal(windows.judge(-(ok + 1)), 'meh');
-  assert.equal(windows.judge(ok + 1), null, 'past OK the note is simply gone');
+  for (const judgement of JUDGEMENTS) {
+    const edge = windows.windowFor(judgement);
+    assert.equal(windows.judge(edge), judgement, `${judgement}, late`);
+    assert.equal(windows.judge(-edge), judgement, `${judgement}, early`);
+  }
 });
 
 test('pressing before the MISS window does nothing rather than missing', () => {
@@ -80,10 +83,12 @@ test('pressing before the MISS window does nothing rather than missing', () => {
   assert.equal(windows.judge(-(miss + 1)), null, 'outside it, the press is not for this note');
 });
 
-test('a note is written off once the OK window closes, not the miss window', () => {
+test('a note survives until the MEH window closes, not the MISS window', () => {
+  // osu's CanBeHit asks for the window of the lowest *successful* result, which in mania
+  // is MEH. MISS is wider, but it only ever turns a press into a miss.
   const windows = new ManiaHitWindows(8);
 
-  assert.equal(windows.missAfterMs(), windows.windowFor('ok'));
+  assert.equal(windows.missAfterMs(), windows.windowFor('meh'));
   assert.ok(windows.missAfterMs() < windows.windowFor('miss'));
 });
 
@@ -93,7 +98,7 @@ test('release lenience widens every tail window by half again', () => {
 
   assert.equal(windows.judge(great * RELEASE_WINDOW_LENIENCE, RELEASE_WINDOW_LENIENCE), 'great');
   assert.equal(windows.judge(great * RELEASE_WINDOW_LENIENCE + 1, RELEASE_WINDOW_LENIENCE), 'good');
-  assert.equal(windows.missAfterMs(RELEASE_WINDOW_LENIENCE), windows.windowFor('ok') * 1.5);
+  assert.equal(windows.missAfterMs(RELEASE_WINDOW_LENIENCE), windows.windowFor('meh') * 1.5);
 });
 
 test('judgement labels follow the mania scale, not osu!std', () => {

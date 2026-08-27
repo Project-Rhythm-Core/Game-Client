@@ -109,30 +109,21 @@ export class ManiaHitWindows {
   /**
    * The judgement a timing error earns, or `null` when the note cannot be touched at all.
    *
-   * `errorMs` is signed: negative is early, positive is late.
+   * `errorMs` is signed — negative is early — but only its magnitude decides the result.
+   * Every window is symmetric about the note, because osu's own `HitWindows.ResultFor`
+   * opens with `Math.Abs(timeOffset)` and nothing in mania's drawables reintroduces a
+   * side. An earlier version of this cut the MEH and MISS bands off the late side, which
+   * cost the player a 24 ms band where osu awards a MEH and keeps their combo.
    *
-   * Two asymmetries are deliberate, and both come from osu!mania rather than from
-   * symmetry:
-   *
-   * - **A late MEH is impossible.** Once the OK window closes the note is gone, so the
-   *   MEH and MISS bands only exist on the early side.
-   * - **Pressing before the MISS window does nothing at all.** It is not a miss; the
-   *   input passes straight through and the note stays where it is.
+   * `null` is not a miss. A press outside even the MISS window is not about this note at
+   * all: it passes straight through and the note stays where it is.
    */
   judge(errorMs: number, lenience = 1): Judgement | null {
-    const error = errorMs / lenience;
-    const magnitude = Math.abs(error);
+    const magnitude = Math.abs(errorMs / lenience);
 
     for (const judgement of JUDGEMENTS) {
-      if (judgement === 'meh' || judgement === 'miss') break;
       if (magnitude <= this.windows[judgement]) return judgement;
     }
-
-    // Everything past OK exists only early.
-    if (error >= 0) return null;
-
-    if (magnitude <= this.windows.meh) return 'meh';
-    if (magnitude <= this.windows.miss) return 'miss';
 
     return null;
   }
@@ -140,11 +131,13 @@ export class ManiaHitWindows {
   /**
    * How late a note may be before it is written off as missed.
    *
-   * The OK window, not MISS: a note that has gone further than that was never going to
-   * be hit, because a late MEH cannot happen.
+   * The MEH window, which is what osu's `CanBeHit` compares against: it asks for the
+   * window of the lowest *successful* result, and in mania that is MEH. MISS is wider
+   * still, but it never keeps a note alive — it only exists to catch a press that
+   * arrived far enough out to be worth calling a miss.
    */
   missAfterMs(lenience = 1): number {
-    return this.windows.ok * lenience;
+    return this.windows.meh * lenience;
   }
 
   /** Earliest a press can interact with a note at all, as a negative offset. */

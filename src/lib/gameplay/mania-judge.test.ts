@@ -73,12 +73,12 @@ test('a lane offers its notes one at a time, in order', () => {
   assert.equal(judge.press(0, 1400), null, 'the lane is exhausted');
 });
 
-test('a note is written off once the OK window closes', () => {
+test('a note is written off once the MEH window closes', () => {
   const judge = judgeOf([{ timeMs: 1000, column: 0 }]);
 
-  assert.deepEqual(judge.update(1000 + windows.windowFor('ok')), [], 'still reachable');
+  assert.deepEqual(judge.update(1000 + windows.windowFor('meh')), [], 'still reachable');
 
-  const events = judge.update(1000 + windows.windowFor('ok') + 1);
+  const events = judge.update(1000 + windows.windowFor('meh') + 1);
   assert.equal(events.length, 1);
   assert.equal(events[0].judgement, 'miss');
   assert.equal(events[0].errorMs, null, 'a note never touched has no timing error');
@@ -96,7 +96,7 @@ test('only a miss breaks combo', () => {
   assert.equal(judge.counts.ok, 1);
   assert.equal(judge.combo, 2, 'a poor judgement still continues the combo');
 
-  judge.update(3000 + windows.windowFor('ok') + 1);
+  judge.update(3000 + windows.windowFor('meh') + 1);
   assert.equal(judge.combo, 0);
   assert.equal(judge.maxCombo, 2);
 });
@@ -162,6 +162,29 @@ test('a missed head caps the tail at MEH however well it is released', () => {
 
   const tail = judge.release(0, 2000);
   assert.equal(tail?.judgement, 'meh', 'a perfect release cannot rescue a missed head');
+});
+
+test('a hold cannot be picked up inside the tail\'s release lenience', () => {
+  // The lenience widens the window the tail is judged in and delays its miss, but osu
+  // will not start a hold in that extra time: DrawableHoldNote.OnPressed tests the tail's
+  // plain CanBeHit, without the lenience.
+  const judge = judgeOf([{ timeMs: 1000, column: 0, endMs: 2000 }]);
+  judge.update(1000 + windows.missAfterMs() + 1);
+  assert.equal(judge.counts.miss, 1, 'precondition: the head is gone');
+
+  const tooLate = 2000 + windows.missAfterMs() + 1;
+  assert.ok(
+    tooLate < 2000 + windows.missAfterMs(RELEASE_WINDOW_LENIENCE),
+    'precondition: the tail itself has not expired yet',
+  );
+
+  judge.press(0, tooLate);
+  assert.ok(!judge.isHolding(0), 'too late to pick the hold up');
+
+  const inTime = judgeOf([{ timeMs: 1000, column: 0, endMs: 2000 }]);
+  inTime.update(1000 + windows.missAfterMs() + 1);
+  inTime.press(0, 2000 + windows.missAfterMs() - 1);
+  assert.ok(inTime.isHolding(0), 'a moment earlier it is still reachable');
 });
 
 test('a hold keeps its lane parked until the release is judged', () => {

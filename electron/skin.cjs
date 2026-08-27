@@ -43,8 +43,12 @@ const SKIN_CACHE = path.join(os.tmpdir(), 'project-rhythm-core', 'skins');
  *
  * Stands in until the game ships one of its own — this is someone else's artwork, fine
  * to import locally and not fine to redistribute.
+ *
+ * Must name a folder that is actually under `BUNDLED_SKINS`: a name that matches nothing
+ * leaves the game with no skin at all, and the only sign of it is that the playfield
+ * quietly draws flat colour.
  */
-const DEFAULT_SKIN_FOLDER = 'dpjam_percy';
+const DEFAULT_SKIN_FOLDER = '『 - Nabos Skin Mix - 』';
 
 /** Canonical sound name to absolute path. Empty until a skin is loaded. */
 let sounds = {};

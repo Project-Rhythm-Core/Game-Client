@@ -495,7 +495,10 @@ export class Playfield {
       const x = this.laneX[column] ?? 0;
       const width = this.laneWidths[column] ?? FALLBACK.columnWidth * this.scale;
       const style = this.layout?.columns[column];
-      const headY = receptorY - (playable.notePositions[i] - scrollPosition) * pixelsPerUnit;
+
+      // Where the note's *hit line* is: the y at which it is exactly on time. What rests
+      // on that line is an edge, not the middle of the graphic — see `noteCentreY`.
+      const headLineY = receptorY - (playable.notePositions[i] - scrollPosition) * pixelsPerUnit;
 
       if (isHold) {
         const dropped = playable.holdBroken[i] === 1;
@@ -504,13 +507,22 @@ export class Playfield {
 
         // While it is being held the head stays pinned to the receptor and the body
         // shrinks into it, which is what makes holding feel like it is doing something.
-        const bottom = holding ? receptorY : headY;
-        const tailY = receptorY - (playable.noteEndPositions[i] - scrollPosition) * pixelsPerUnit;
+        const headLine = holding ? receptorY : headLineY;
+        const tailLineY = receptorY - (playable.noteEndPositions[i] - scrollPosition) * pixelsPerUnit;
 
-        // The tail can be enormously far away when velocity spikes, so the geometry is
-        // clamped to the screen rather than handed to the rasteriser at full size.
-        const top = Math.max(tailY, -screenHeight);
-        const clampedBottom = Math.min(bottom, screenHeight * 2);
+        const headTexture = style?.head ?? style?.note;
+        const headCentre = this.noteCentreY(headTexture, width, headLine, false);
+        // The tail is the one piece that hangs the other way: osu anchors
+        // `DrawableHoldNoteTail` TopCentre, so its cap drops into the hold from the end
+        // rather than straddling it.
+        const tailCentre = this.noteCentreY(style?.tail, width, tailLineY, true);
+
+        // The body runs between the two centres, which is what puts it half-way under
+        // each cap — lazer sizes `bodyPiece` that way so a rounded head or tail has no
+        // seam. The tail can be enormously far away when velocity spikes, so the geometry
+        // is clamped to the screen rather than handed to the rasteriser at full size.
+        const top = Math.max(tailCentre, -screenHeight);
+        const clampedBottom = Math.min(headCentre, screenHeight * 2);
 
         if (clampedBottom > top) {
           const body = this.takeBody(bodies++);
@@ -550,11 +562,11 @@ export class Playfield {
         // The end cap, drawn only once the hold is actually on screen. Skins that ship no
         // tail reuse the head, which has to be turned over so the note reads as ending
         // rather than starting.
-        if (style?.tail && tailY > -screenHeight && tailY < screenHeight * 2) {
-          this.placeNote(heads++, style.tail, x, width, tailY, holdTint, dead, style.tailFlipped);
+        if (style?.tail && tailCentre > -screenHeight && tailCentre < screenHeight * 2) {
+          this.placeNote(heads++, style.tail, x, width, tailCentre, holdTint, dead, style.tailFlipped);
         }
 
-        this.placeNote(heads++, style?.head ?? style?.note, x, width, bottom, holdTint, dead);
+        this.placeNote(heads++, headTexture, x, width, headCentre, holdTint, dead);
       } else {
         const tint =
           headState === NoteState.Missed
@@ -568,7 +580,7 @@ export class Playfield {
           style?.note,
           x,
           width,
-          headY,
+          this.noteCentreY(style?.note, width, headLineY, false),
           tint,
           headState === NoteState.Missed,
         );
@@ -735,6 +747,43 @@ export class Playfield {
   }
 
   /** Positions one note sprite, centred on `centreY`. */
+  /**
+   * Drawn height of a note in a lane of `width` pixels.
+   *
+   * A textured note keeps its proportions against the lane, so its size follows the stage
+   * at any resolution. An untextured one gets a slab scaled the same way.
+   */
+  private noteHeight(texture: Texture | undefined, width: number): number {
+    return texture
+      ? width * (texture.height / texture.width)
+      : PLAIN_NOTE_HEIGHT * this.scale;
+  }
+
+  /**
+   * Where to centre a note whose hit line is at `lineY`.
+   *
+   * osu rests an *edge* of the graphic on the line, never its middle. Every note anchors
+   * BottomCentre on downscroll — `DrawableManiaHitObject` sets it, `DrawableNote` keeps it
+   * for its head piece, and `LegacyNotePiece` gives its container the same origin — so a
+   * note sits entirely above the line and only its bottom edge touches. The one exception
+   * is the hold tail, which `DrawableHoldNoteTail` anchors TopCentre so the cap drops back
+   * into the hold; pass `hangsDown` for it.
+   *
+   * Centring on the line instead, which is what this used to do, draws every note half its
+   * own height too low. On a square note in a 70-unit lane at 700 ms of travel that is
+   * 57 ms of apparent lateness — wider than a GREAT window, and it reads as the whole game
+   * being late rather than as a drawing offset.
+   */
+  private noteCentreY(
+    texture: Texture | undefined,
+    width: number,
+    lineY: number,
+    hangsDown: boolean,
+  ): number {
+    const half = this.noteHeight(texture, width) / 2;
+    return hangsDown ? lineY + half : lineY - half;
+  }
+
   private placeNote(
     index: number,
     texture: Texture | undefined,
@@ -750,12 +799,7 @@ export class Playfield {
 
     sprite.texture = source;
     sprite.width = width;
-    // Textured notes keep their proportions; untextured ones are a fixed slab.
-    // A textured note keeps its proportions against the lane, so its size follows the
-    // stage at any resolution. An untextured one gets a slab scaled the same way.
-    sprite.height = texture
-      ? width * (source.height / source.width)
-      : PLAIN_NOTE_HEIGHT * this.scale;
+    sprite.height = this.noteHeight(texture, width);
     sprite.x = x;
     sprite.y = centreY;
     // Assigning `height` above always leaves a positive scale, so this both applies the
