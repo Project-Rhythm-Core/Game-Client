@@ -73,6 +73,16 @@ export interface Judge {
   readonly errors: readonly number[];
   /** Whether `column` currently has a hold in progress. */
   isHolding(column: number): boolean;
+
+  /**
+   * The longest a note stays reachable after its own time, in milliseconds.
+   *
+   * The renderer needs this and cannot work it out: how long a note is worth drawing past
+   * the judgement line is a question about when it stops being hittable, not about how
+   * fast the chart happens to be scrolling. Take the widest case the ruleset has — in
+   * osu!mania that is a hold tail, with its release lenience.
+   */
+  readonly latestHitMs: number;
 }
 
 export interface Ruleset {

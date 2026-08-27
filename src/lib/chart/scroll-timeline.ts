@@ -18,6 +18,65 @@ import type { Chart, Note } from './types.ts';
  * with the player's speed setting.
  */
 
+/**
+ * The tempo a chart spends the most time at, which is what the scroll speed is measured
+ * against.
+ *
+ * Taking the *first* tempo point instead — the obvious reading — makes the player's speed
+ * setting mean something different on every chart. One bundled chart opens on a 107.8 BPM
+ * point and then sits at 215.6 for the rest of its length, so at the same setting it
+ * scrolled at exactly twice the speed of everything else.
+ *
+ * This is osu's `Beatmap.GetMostCommonBeatLength`, which mania uses through
+ * `RelativeScaleBeatLengths`. Two details are load-bearing and neither is obvious:
+ *
+ * - **The first point is treated as starting at zero**, however late it really is. osu
+ *   does this for stable compatibility and says so, naming mania's scroll speed as the
+ *   reason.
+ * - **Weight is total duration, not how many points share a tempo.** A tempo used by
+ *   fifty momentary points still loses to the one the chart actually plays at.
+ */
+export function mostCommonBpm(chart: Chart): number {
+  const tempo = chart.timing.tempo;
+  if (tempo.length === 0) return 60;
+  if (tempo.length === 1) return tempo[0].bpm;
+
+  // The last timing point runs to the end of play, which a hold can extend past its head.
+  let lastTimeMs = 0;
+  for (const note of chart.notes) lastTimeMs = Math.max(lastTimeMs, note.endMs ?? note.timeMs);
+
+  const durationByBpm = new Map<number, number>();
+
+  for (let i = 0; i < tempo.length; i++) {
+    // Rounded so floating-point noise cannot split one tempo into two near-identical keys.
+    const bpm = Math.round(tempo[i].bpm * 1000) / 1000;
+    const previous = durationByBpm.get(bpm) ?? 0;
+
+    if (tempo[i].timeMs > lastTimeMs) {
+      // Past the last note: it is in the file but never in effect.
+      durationByBpm.set(bpm, previous);
+      continue;
+    }
+
+    const startMs = i === 0 ? 0 : tempo[i].timeMs;
+    const endMs = i === tempo.length - 1 ? lastTimeMs : tempo[i + 1].timeMs;
+
+    durationByBpm.set(bpm, previous + Math.max(0, endMs - startMs));
+  }
+
+  let bestBpm = tempo[0].bpm;
+  let bestDuration = -1;
+  for (const [bpm, duration] of durationByBpm) {
+    if (duration > bestDuration) {
+      bestBpm = bpm;
+      bestDuration = duration;
+    }
+  }
+
+  // Every point sits past the last note, so nothing was ever really in effect.
+  return bestDuration > 0 ? bestBpm : tempo[0].bpm;
+}
+
 /** A stretch of time over which velocity is constant. */
 interface ScrollSegment {
   startTimeMs: number;
@@ -29,8 +88,10 @@ interface ScrollSegment {
 
 export interface ScrollTimelineOptions {
   /**
-   * Tempo that counts as unmodified. Defaults to the first tempo point, which is what
-   * makes a chart's opening section scroll at exactly the player's chosen speed.
+   * Tempo that counts as unmodified. Defaults to the chart's most prevalent tempo.
+   *
+   * Overriding it is for tests; a player's speed setting is meant to mean the same thing
+   * from one chart to the next, and {@link mostCommonBpm} is what makes it.
    */
   referenceBpm?: number;
   /**
@@ -49,7 +110,7 @@ export class ScrollTimeline {
   readonly referenceBpm: number;
 
   constructor(chart: Chart, options: ScrollTimelineOptions = {}) {
-    this.referenceBpm = options.referenceBpm ?? chart.timing.tempo[0]?.bpm ?? 60;
+    this.referenceBpm = options.referenceBpm ?? mostCommonBpm(chart);
     this.segments = options.constantVelocity
       ? [{ startTimeMs: -Infinity, startPosition: -Infinity, velocity: 1 }]
       : buildSegments(chart, this.referenceBpm);

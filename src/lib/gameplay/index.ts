@@ -1,6 +1,6 @@
 export { ColumnInput, defaultLayout } from './input.ts';
 export type { ColumnInputHandlers } from './input.ts';
-export { unstableRate } from './stats.ts';
+export { meanError, unstableRate } from './stats.ts';
 export {
   registerRuleset,
   rulesetFor,

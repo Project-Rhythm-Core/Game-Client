@@ -24,3 +24,18 @@ export function unstableRate(errors: readonly number[]): number {
 
   return Math.sqrt(variance) * 10;
 }
+
+/**
+ * Mean timing error, in milliseconds. Negative means consistently early.
+ *
+ * The companion to the unstable rate, and the one that says what to *do*. Spread is skill;
+ * a mean sitting well away from zero is calibration, and no amount of practice moves it —
+ * it moves when the offset does.
+ */
+export function meanError(errors: readonly number[]): number {
+  if (errors.length === 0) return 0;
+
+  let total = 0;
+  for (const error of errors) total += error;
+  return total / errors.length;
+}

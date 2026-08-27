@@ -66,6 +66,11 @@ export class ManiaJudge implements Judge {
     return this.activeHold[column] >= 0;
   }
 
+  /** A hold tail outlives a note's own window by the release lenience, so it sets this. */
+  get latestHitMs(): number {
+    return this.windows.missAfterMs(RELEASE_WINDOW_LENIENCE);
+  }
+
   // -------------------------------------------------------------------------
   // Input
   // -------------------------------------------------------------------------

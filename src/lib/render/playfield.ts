@@ -68,7 +68,14 @@ const UNKNOWN_JUDGEMENT_COLOUR = 0xffffff;
 /** How long a lane keeps glowing after a judgement, in milliseconds. */
 const FLASH_MS = 140;
 
-/** How far past the receptor a note is still drawn, as a fraction of the travel span. */
+/**
+ * How far past the receptor a note is still drawn, as a fraction of the travel span.
+ *
+ * A fraction of the travel is right for the *look* of a miss falling away, but on its own
+ * it is wrong: at a fast scroll it works out shorter than the time the note stays
+ * reachable, so notes vanished while they could still be hit and a press on nothing scored
+ * a judgement. Whichever of the two is longer wins — see {@link Playfield.setLatestHitMs}.
+ */
 const OVERSHOOT = 0.35;
 
 /** Height of an untextured note, in pixels. */
@@ -139,6 +146,9 @@ export class Playfield {
   /** When each lane was last judged, and what it was, for the hit flash. */
   private readonly flashAt: Float64Array;
   private ruleset: Ruleset | null = null;
+
+  /** How long a note stays reachable past its line; see {@link setLatestHitMs}. */
+  private latestHitMs = 0;
   private readonly flashJudgement: (string | null)[];
 
   constructor(app: Application, options: PlayfieldOptions = {}) {
@@ -190,6 +200,19 @@ export class Playfield {
    */
   setRuleset(ruleset: Ruleset | null): void {
     this.ruleset = ruleset;
+  }
+
+  /**
+   * How long a note remains hittable after its own time, from the judge.
+   *
+   * Compared against the scroll-derived overshoot in reference milliseconds, which is not
+   * the same unit as real time once velocity changes are in play. The mismatch is
+   * deliberate and one-sided: under a velocity spike this under-reaches and a doomed note
+   * leaves the screen slightly early, while the case that actually bit — an ordinary
+   * chart at a fast scroll — is covered exactly.
+   */
+  setLatestHitMs(ms: number): void {
+    this.latestHitMs = Math.max(0, ms);
   }
 
   private judgementColour(judgement: string): number {
@@ -486,7 +509,7 @@ export class Playfield {
     const { start, end } = playable.visibleRange(
       scrollPosition,
       this.options.travelMs,
-      this.options.travelMs * OVERSHOOT,
+      Math.max(this.options.travelMs * OVERSHOOT, this.latestHitMs),
     );
 
     let bodies = 0;

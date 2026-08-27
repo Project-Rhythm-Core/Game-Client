@@ -1,13 +1,20 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Application, type Ticker } from 'pixi.js';
+  import { Application, TextureSource, type Ticker } from 'pixi.js';
 
-  import { AudioClock, SystemClock, type PlaybackClock } from './lib/audio/index.ts';
+  import {
+    AudioClock,
+    LeadInClock,
+    SystemClock,
+    leadInFor,
+    type PlaybackClock,
+  } from './lib/audio/index.ts';
   import type { AvailableSkin, BundledChart, ImportedChart } from './lib/audio/types.ts';
   import { PlayableChart } from './lib/chart/playable-chart.ts';
   import {
     ColumnInput,
     defaultLayout,
+    meanError,
     rulesetFor,
     unstableRate,
   } from './lib/gameplay/index.ts';
@@ -16,6 +23,32 @@
 
   /** How long a judgement stays on screen. */
   const JUDGEMENT_FLASH_MS = 500;
+
+  /**
+   * The renderer backend to ask Pixi for.
+   *
+   * Kept as a constant so the HUD can say whether it was honoured. Pixi falls back without
+   * complaint, and on Linux there is a real chance of it: WebGPU means Vulkan, and
+   * Chromium refuses Vulkan under the Wayland ozone platform. Silently ending up on WebGL
+   * matters when the point of the session is comparing how skins look, because filtering
+   * and blending are not identical between the two.
+   */
+  const RENDERER_PREFERENCE = 'webgpu';
+
+  /**
+   * The canvas formats worth swapping Pixi's default for.
+   *
+   * `getPreferredCanvasFormat` is typed as the whole of `GPUTextureFormat`, but the spec
+   * only ever returns one of these two, and they are the only ones Pixi models. Checking
+   * rather than casting means an unexpected answer leaves Pixi's own default alone instead
+   * of forcing it into a format it cannot describe.
+   */
+  const CANVAS_FORMATS = ['bgra8unorm', 'rgba8unorm'] as const;
+
+  function preferredCanvasFormat(): (typeof CANVAS_FORMATS)[number] | null {
+    const preferred = navigator.gpu?.getPreferredCanvasFormat();
+    return CANVAS_FORMATS.find((format) => format === preferred) ?? null;
+  }
 
   let stage: HTMLDivElement;
   let app: Application | null = null;
@@ -30,6 +63,21 @@
    * samples, so time has to come from somewhere or nothing on screen moves at all.
    */
   const systemClock = new SystemClock();
+
+  /**
+   * The approach before the music starts.
+   *
+   * Wraps whichever clock is really timing the chart, and reports negative time until it
+   * takes over. A chart whose first note lands a fraction of a second in is unplayable
+   * without one.
+   */
+  const leadIn = new LeadInClock(audioClock);
+
+  /** How long this chart waits before its music starts. Zero when its intro has room. */
+  let leadInMs = $state(0);
+
+  /** The backend Pixi actually built, which is not always the one that was asked for. */
+  let backend = $state('');
 
   /** Whichever of the two is timing the chart currently loaded. */
   let clock: PlaybackClock = $state(audioClock);
@@ -54,7 +102,7 @@
   /** Whose rules the loaded chart is played by, chosen from its own origin format. */
   let ruleset = $state.raw<Ruleset | null>(null);
   let judge = $state.raw<Judge | null>(null);
-  const input = new ColumnInput(audioClock, {
+  const input = new ColumnInput(leadIn, {
     onPress: (column, songTimeMs) => {
       const event = judge?.press(column, songTimeMs);
       if (!event) return;
@@ -161,20 +209,30 @@
   // Diagnostics, refreshed from the render loop.
   let hud = $state({
     positionMs: 0, scroll: 0, velocity: 1, drawn: 0,
-    combo: 0, maxCombo: 0, accuracy: 1, unstableRate: 0,
+    combo: 0, maxCombo: 0, accuracy: 1, unstableRate: 0, meanErrorMs: 0,
     counts: {} as Record<string, number>,
     fps: 0, frameMs: 0, worstMs: 0, updateMs: 0, worstUpdateMs: 0, load: 0, longFrames: 0,
   });
 
   onMount(async () => {
+    // Match the canvas to the format the device actually wants.
+    //
+    // Pixi defaults to `bgra8unorm`, and a device that prefers something else has to copy
+    // the whole surface every frame to convert it — Chromium says so in the console and
+    // then does it anyway. Asking removes the copy, and on a device that already prefers
+    // `bgra8unorm` this changes nothing.
+    const preferredFormat = preferredCanvasFormat();
+    if (preferredFormat) TextureSource.defaultOptions.format = preferredFormat;
+
     app = new Application();
     await app.init({
       resizeTo: stage,
       backgroundColor: 0x0d0d12,
       antialias: true,
-      preference: 'webgpu',
+      preference: RENDERER_PREFERENCE,
     });
     stage.appendChild(app.canvas);
+    backend = app.renderer.name;
     playfield = new Playfield(app, { travelMs });
 
     // The skin is optional: without one the playfield draws flat colour, so a failure
@@ -269,11 +327,19 @@
       judge = ruleset.createJudge(playable);
       input.setLayout(defaultLayout(imported.chart.columns.length));
       playfield?.setRuleset(ruleset);
+      playfield?.setLatestHitMs(judge.latestHitMs);
       playfield?.drawLanes(playable);
 
-      clock = audioClock;
-      input.clock = audioClock;
+      clock = leadIn;
+      input.clock = leadIn;
       silent = false;
+
+      // osu starts gameplay two seconds before the first note — `GameplayStartTime` is
+      // `first.StartTime - 2000` — delaying the music itself when the intro is too short.
+      // Without it a chart that opens on the beat is unreadable: the note is on the
+      // receptor before the player has looked at it.
+      const firstNoteMs = imported.chart.notes[0]?.timeMs ?? 0;
+      leadInMs = leadInFor(firstNoteMs, imported.chart.audio?.leadInMs ?? 0);
 
       status = imported.samplePaths.length
         ? `decoding audio and ${imported.samplePaths.length} samples…`
@@ -333,11 +399,17 @@
         else await audioClock.play();
         systemClock.start(audioClock.positionMs());
       } else if (silent) {
-        systemClock.start();
-      } else if (playing) {
-        await audioClock.restart();
+        systemClock.start(-leadInMs);
       } else {
-        await audioClock.play();
+        // The approach starts now and the music starts when it runs out. Awaiting the
+        // audio here instead would spend the whole lead-in inside `play()`, which is the
+        // one thing the lead-in exists to avoid.
+        leadIn.begin(leadInMs);
+        const start = playing ? () => audioClock.restart() : () => audioClock.play();
+        const begin = () => start().then(() => leadIn.handOver());
+
+        if (leadInMs > 0) setTimeout(() => void begin().catch(report), leadInMs);
+        else await begin();
       }
 
       playing = true;
@@ -347,10 +419,15 @@
     }
   }
 
+  function report(e: unknown) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+
   function rebuild() {
     if (!imported) return;
     playable = new PlayableChart(imported.chart, { constantVelocity });
     judge = ruleset?.createJudge(playable) ?? null;
+    if (judge) playfield?.setLatestHitMs(judge.latestHitMs);
     playfield?.drawLanes(playable);
     playing = false;
   }
@@ -380,6 +457,7 @@
         hud.maxCombo = judge.maxCombo;
         hud.accuracy = judge.accuracy;
         hud.unstableRate = unstableRate(judge.errors);
+        hud.meanErrorMs = meanError(judge.errors);
         for (const judgement of ruleset?.judgements ?? []) {
           hud.counts[judgement] = judge.counts[judgement] ?? 0;
         }
@@ -469,8 +547,9 @@
     {audioOffsetMs > 0 ? '+' : ''}{audioOffsetMs} ms
   </label>
 
-  <label class="speed">
-    lead
+  <label class="speed"
+    title="Draw this many frames ahead of the audio, to cancel the delay between a frame being computed and appearing. Moves the picture only — never the judgement.">
+    draw ahead
     <input type="range" min="0" max="3" step="1" bind:value={visualLeadFrames} />
     {visualLeadFrames}f
   </label>
@@ -485,6 +564,16 @@
   <span class="keys">
     {imported ? defaultLayout(imported.chart.columns.length).map((k) => k.replace(/^Key/, '')).join(' ') : ''}
   </span>
+  <!-- Whether Pixi got the backend it was asked for. Always visible: a fallback is not an
+       error, but finding out only after loading a chart is no use when the question is
+       whether to trust what you are looking at. -->
+  <span class="backend" class:warn={backend !== '' && backend !== RENDERER_PREFERENCE}
+    title={backend === RENDERER_PREFERENCE
+      ? `Rendering with ${backend}, as requested`
+      : `Asked for ${RENDERER_PREFERENCE}, got ${backend} — filtering and blending differ between the two`}>
+    {backend || '…'}
+  </span>
+
   <span class="status">{switchingSkin ? 'importing skin…' : status}</span>
 </div>
 
@@ -499,6 +588,12 @@
     <div class="rule"></div>
     <div>{(hud.accuracy * 100).toFixed(2)}% · {hud.combo}x <span class="dim">(max {hud.maxCombo})</span></div>
     <div class="dim">UR {hud.unstableRate.toFixed(1)}</div>
+    <!-- Spread is skill; a mean far from zero is calibration, and practice will not move
+         it. If this sits at -20 ms you are hitting early and the offset wants +20. -->
+    <div class:warn={Math.abs(hud.meanErrorMs) > 10}>
+      mean {hud.meanErrorMs > 0 ? '+' : ''}{hud.meanErrorMs.toFixed(1)} ms
+      <span class="dim">{Math.abs(hud.meanErrorMs) > 10 ? (hud.meanErrorMs < 0 ? '· early' : '· late') : ''}</span>
+    </div>
     {#each ruleset?.judgements ?? [] as judgement (judgement)}
       <div class="tally">
         <span style="color: {colourOf(judgement)}">{ruleset?.styleFor(judgement).label}</span>
@@ -621,6 +716,16 @@
 
   .status {
     color: var(--muted);
+  }
+
+  .backend {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .backend.warn {
+    color: #ffb454;
   }
 
   .hud {

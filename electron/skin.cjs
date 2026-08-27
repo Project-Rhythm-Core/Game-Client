@@ -82,28 +82,25 @@ function hostFor(id) {
 }
 
 /**
- * Declares the scheme's privileges. Must run before the app is ready.
+ * What this scheme needs, for the one registration call the app is allowed.
  *
  * `standard` gives it real URL semantics so relative paths resolve; `secure` keeps it out
  * of the mixed-content rules; `supportFetchAPI` is what lets the renderer's asset loader
- * use it at all.
+ * use it at all. Handed to `registerSchemes` in `main.cjs` rather than registered here —
+ * see the note on the app scheme's descriptor for why there can only be one call.
  */
-function registerSkinScheme() {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: SKIN_SCHEME,
-      // `corsEnabled` is what actually lets the renderer fetch from here. Without it
-      // Chromium refuses the request before any header is considered, and the error
-      // names CORS while the cause is the scheme's registration.
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        corsEnabled: true,
-      },
-    },
-  ]);
-}
+const SCHEME = {
+  scheme: SKIN_SCHEME,
+  // `corsEnabled` is what actually lets the renderer fetch from here. Without it
+  // Chromium refuses the request before any header is considered, and the error
+  // names CORS while the cause is the scheme's registration.
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+  },
+};
 
 /**
  * Starts serving `skin://active/<path>`. Must run after the app is ready.
@@ -289,7 +286,7 @@ module.exports = {
   activeSkin,
   theme,
   resolveSample,
-  registerSkinScheme,
+  SCHEME,
   serveSkinFiles,
   SKIN_SCHEME,
   DEFAULT_SKIN_FOLDER,

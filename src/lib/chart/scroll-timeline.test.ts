@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ScrollTimeline } from './scroll-timeline.ts';
+import { ScrollTimeline, mostCommonBpm } from './scroll-timeline.ts';
 import type { Chart, Note, ScrollPoint, TempoPoint } from './types.ts';
 
 /** A chart with only the fields the timeline reads. */
@@ -166,4 +166,65 @@ test('extreme authored values stay finite', () => {
 test('an empty timing list does not throw', () => {
   const timeline = new ScrollTimeline(chartWith([], []));
   assert.ok(Number.isFinite(timeline.positionAt(1000)));
+});
+
+// --- the tempo the speed setting is measured against ------------------------
+
+test('the reference tempo is the one the chart spends the most time at', () => {
+  // The bug this pins down: a bundled chart opens on a 107.8 BPM point and then sits at
+  // 215.6 for the rest of its length. Taking the first point made the same speed setting
+  // scroll at exactly twice the rate it did on every other chart.
+  const chart = chartWith(
+    [
+      { timeMs: 0, bpm: 107.8, meter: 4 },
+      { timeMs: 2000, bpm: 215.6, meter: 4 },
+    ],
+    [],
+    [1000, 60_000],
+  );
+
+  assert.equal(mostCommonBpm(chart), 215.6);
+  assert.equal(new ScrollTimeline(chart).referenceBpm, 215.6);
+});
+
+test('weight is time spent, not how many points share a tempo', () => {
+  // Fifty momentary points still lose to the one the chart actually plays at.
+  const tempo: TempoPoint[] = [{ timeMs: 0, bpm: 180, meter: 4 }];
+  for (let i = 0; i < 50; i++) tempo.push({ timeMs: 30_000 + i, bpm: 400, meter: 4 });
+
+  assert.equal(mostCommonBpm(chartWith(tempo, [], [60_000])), 180);
+});
+
+test('the first point counts from zero however late it really is', () => {
+  // osu forces this for stable compatibility and names mania's scroll speed as the reason.
+  // Without it the opening tempo would be credited with no time at all.
+  const chart = chartWith(
+    [
+      { timeMs: 9000, bpm: 100, meter: 4 },
+      { timeMs: 10_000, bpm: 200, meter: 4 },
+    ],
+    [],
+    [10_500],
+  );
+
+  // 100 BPM holds 0..10000, 200 BPM holds 10000..10500.
+  assert.equal(mostCommonBpm(chart), 100);
+});
+
+test('a tempo point past the last note was never really in effect', () => {
+  const chart = chartWith(
+    [
+      { timeMs: 0, bpm: 150, meter: 4 },
+      { timeMs: 90_000, bpm: 300, meter: 4 },
+    ],
+    [],
+    [1000, 20_000],
+  );
+
+  assert.equal(mostCommonBpm(chart), 150);
+});
+
+test('a chart with one tempo, or none, still answers', () => {
+  assert.equal(mostCommonBpm(chartWith([{ timeMs: 0, bpm: 175, meter: 4 }], [], [1000])), 175);
+  assert.equal(mostCommonBpm(chartWith([], [], [1000])), 60);
 });

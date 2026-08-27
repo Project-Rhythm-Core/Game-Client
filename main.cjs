@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu, protocol } = require('electron');
 const path = require('path');
 
 const { registerAudioHandlers, releaseAudio } = require('./electron/audio-ipc.cjs');
@@ -12,9 +12,14 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
-// Both schemes have to be declared before the app is ready; they are served afterwards.
-appProtocol.registerAppScheme();
-skin.registerSkinScheme();
+// Every custom scheme has to be declared before the app is ready, in a **single** call.
+//
+// `registerSchemesAsPrivileged` replaces whatever was registered before rather than adding
+// to it, so calling it once per scheme leaves every scheme but the last one unprivileged.
+// That failure is entirely silent and expensive: `app://` lost `secure: true`, which made
+// the whole renderer a non-secure context, which removed `navigator.gpu`, which sent Pixi
+// to WebGL for the whole session with nothing logged anywhere.
+protocol.registerSchemesAsPrivileged([appProtocol.SCHEME, skin.SCHEME]);
 
 /** Set when running against the vite dev server instead of a production build. */
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -41,6 +46,14 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show());
 
+  // The default menu is gone, so devtools needs a way back. A raw key check rather than an
+  // accelerator, because an accelerator is exactly the thing being removed.
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      win.webContents.toggleDevTools();
+    }
+  });
+
   if (DEV_SERVER_URL) {
     win.loadURL(DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: 'detach' });
@@ -53,6 +66,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // No application menu at all.
+  //
+  // Electron installs a default one, and every item on it carries an accelerator that is
+  // live during play: Alt opens the File menu, Ctrl+R reloads mid-song, Ctrl+W closes the
+  // window. A lane layout that uses those modifiers hits them by accident, and a rhythm
+  // game cannot afford a keypress to open a menu instead of playing a note.
+  Menu.setApplicationMenu(null);
+
   appProtocol.serveApp();
   skin.serveSkinFiles();
   registerAudioHandlers();
