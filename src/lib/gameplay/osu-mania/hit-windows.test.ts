@@ -1,13 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  JUDGEMENT_LABELS,
-  JUDGEMENTS,
-  ManiaHitWindows,
-  RELEASE_WINDOW_LENIENCE,
-  difficultyRange,
-} from './hit-windows.ts';
+import { ManiaHitWindows, RELEASE_WINDOW_LENIENCE, difficultyRange } from './hit-windows.ts';
+import { JUDGEMENT_LABELS, JUDGEMENTS } from './judgements.ts';
 
 test('the difficulty range hinges on OD 5, not on the midpoint of the ends', () => {
   const range = [22.4, 19.4, 13.9] as const;

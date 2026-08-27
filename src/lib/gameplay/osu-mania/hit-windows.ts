@@ -1,55 +1,31 @@
 /**
- * osu!mania hit windows.
+ * osu!mania hit windows, as **lazer** implements them.
  *
- * Replicates the lazer / ScoreV2 model, which is what osu is moving to. The note windows
- * below GREAT are identical in every osu!mania variant — lazer's own ranges interpolate
- * to exactly `64 - 3 x OD` and so on — so the only place the variants disagree on a plain
- * note is PERFECT: stable's ScoreV1 pins it at a flat 16 ms, while this model scales it
+ * Lazer is the target, and it is not the same thing as stable's ScoreV2 mod even though
+ * the two agree on most of this. Where they part company is worth stating, because the
+ * difference reads like a bug from either side:
+ *
+ * - **Stable** — both ScoreV1 and its ScoreV2 mod — makes a late MEH impossible. A note
+ *   is written off once the OK window passes, and a press past it is a miss.
+ * - **Lazer** is symmetric. `HitWindows.ResultFor` opens with `Math.Abs(timeOffset)`,
+ *   `CanBeHit` keeps a note alive to the MEH window, and mania overrides neither, so a
+ *   late press earns exactly what the same error would earn early.
+ *
+ * The values themselves are common ground: every osu!mania variant agrees on the windows
+ * below GREAT — lazer's ranges interpolate to exactly `64 - 3 x OD` and so on — and only
+ * PERFECT differs, where stable's ScoreV1 pins a flat 16 ms and everything else scales it
  * with difficulty.
+ *
+ * Hold notes are the other place stable's ScoreV1 stands alone: it gives a hold a single
+ * judgement from the *combined* head and tail error against roughly doubled windows,
+ * where ScoreV2 and lazer both judge head and tail separately. `ManiaJudge` follows lazer.
  *
  * Values are half-widths: a window of 40 ms means +/- 40 ms around the note.
  */
 
-export type Judgement = 'perfect' | 'great' | 'good' | 'ok' | 'meh' | 'miss';
+import { JUDGEMENTS, type Judgement } from './judgements.ts';
 
-/** Best to worst, which is the order windows are tested in. */
-export const JUDGEMENTS: readonly Judgement[] = ['perfect', 'great', 'good', 'ok', 'meh', 'miss'];
-
-/**
- * What each judgement is called on screen.
- *
- * The identifiers above are osu's internal `HitResult` names, which are shared across
- * every one of its rulesets and read a whole step too generous in mania: the result osu
- * calls GREAT is the one a mania player and every mania skin call PERFECT. The names here
- * are the ones the reference skin prints on its own judgement graphics, so the text the
- * game shows when a skin ships none agrees with the images when it does.
- */
-export const JUDGEMENT_LABELS: Readonly<Record<Judgement, string>> = {
-  perfect: 'max',
-  great: 'perfect',
-  good: 'great',
-  ok: 'good',
-  meh: 'bad',
-  miss: 'miss',
-};
-
-/**
- * Accuracy weight of each judgement, and the divisor a perfect play would reach.
- *
- * ScoreV2 raises PERFECT above GREAT — under ScoreV1 the two are worth the same, so an
- * all-GREAT play reads as 100 % there and slightly under it here.
- */
-export const JUDGEMENT_WEIGHT: Readonly<Record<Judgement, number>> = {
-  perfect: 305,
-  great: 300,
-  good: 200,
-  ok: 100,
-  meh: 50,
-  miss: 0,
-};
-
-/** Weight of a flawless judgement, which every judgement is measured against. */
-export const MAX_JUDGEMENT_WEIGHT = JUDGEMENT_WEIGHT.perfect;
+export type { Judgement };
 
 /**
  * Window half-widths at OD 0, OD 5 and OD 10, taken from lazer's `ManiaHitWindows`.

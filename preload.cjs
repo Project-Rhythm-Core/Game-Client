@@ -29,8 +29,8 @@ const audio = {
 
 // Charts are converted in the main process and arrive already in the game's format.
 const chart = {
-  /** Convert a `.osu` file and return the chart plus where its media lives. */
-  importOsu: (sourcePath) => ipcRenderer.invoke(CHART_CHANNEL.importOsu, sourcePath),
+  /** Convert a source chart of any supported format, and say where its media lives. */
+  import: (sourcePath) => ipcRenderer.invoke(CHART_CHANNEL.import, sourcePath),
   /** Source charts bundled with the build, for picking one to play. */
   listBundled: () => ipcRenderer.invoke(CHART_CHANNEL.listBundled),
 };

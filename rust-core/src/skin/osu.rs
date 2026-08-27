@@ -18,6 +18,9 @@ use super::model::{
     Stage, TEXTURE_SPACE_HEIGHT, Theme, VIRTUAL_HEIGHT,
 };
 
+/// The name this importer's theme is stored under, and what a caller asks for it by.
+pub const FORMAT: &str = "osu";
+
 /// Sample sets a chart can name.
 const SAMPLE_SETS: [&str; 3] = ["normal", "soft", "drum"];
 
@@ -28,6 +31,7 @@ const SOUND_NAMES: [&str; 4] = ["hitnormal", "hitwhistle", "hitfinish", "hitclap
 const SOUND_EXTENSIONS: [&str; 3] = ["wav", "ogg", "mp3"];
 
 /// What an import produced.
+#[derive(Debug)]
 pub struct ImportedSkin {
     pub id: String,
     pub name: String,
@@ -35,6 +39,8 @@ pub struct ImportedSkin {
     pub sound_count: usize,
     pub layout_count: usize,
     pub texture_count: usize,
+    /// Formats this skin ended up with a theme for. Empty when it provides only sounds.
+    pub themes: Vec<String>,
     pub output_dir: PathBuf,
 }
 
@@ -99,7 +105,7 @@ pub fn import(source: &str, output: &str) -> Result<ImportedSkin, String> {
     let manifest = SkinManifest {
         provides: SkinProvides {
             sounds: !sounds.is_empty(),
-            themes: if has_theme { vec!["osu".into()] } else { Vec::new() },
+            themes: if has_theme { vec![FORMAT.into()] } else { Vec::new() },
         },
         ..manifest
     };
@@ -114,6 +120,7 @@ pub fn import(source: &str, output: &str) -> Result<ImportedSkin, String> {
         sound_count: sounds.len(),
         layout_count: theme.layouts.len(),
         texture_count,
+        themes: manifest.provides.themes.clone(),
         output_dir: output.to_path_buf(),
     })
 }
@@ -319,57 +326,6 @@ fn build_theme(source: &Path, output: &Path) -> Result<Theme, String> {
     layouts.dedup_by_key(|layout| layout.keys);
 
     Ok(Theme::new(judgements, layouts, fonts))
-}
-
-/// Reads a package's manifest back.
-pub fn read_manifest(skin_dir: &str) -> Result<SkinManifest, String> {
-    let path = Path::new(skin_dir).join("skin.yaml");
-
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("could not read '{}': {e}", path.display()))?;
-
-    serde_norway::from_str(&text).map_err(|e| format!("could not parse '{}': {e}", path.display()))
-}
-
-/// Reads a package's visual theme as JSON.
-///
-/// JSON rather than a typed binding because the theme is deeply nested and entirely
-/// optional at every level; the renderer wants the whole tree, not a flattened view of
-/// it. YAML is still parsed in one place — here — so the format has a single reader.
-pub fn read_theme_json(skin_dir: &str, format: &str) -> Result<String, String> {
-    let path = Path::new(skin_dir).join(format!("{format}.yaml"));
-
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("could not read '{}': {e}", path.display()))?;
-
-    let theme: Theme = serde_norway::from_str(&text)
-        .map_err(|e| format!("could not parse '{}': {e}", path.display()))?;
-
-    serde_json::to_string(&theme).map_err(|e| format!("could not encode the theme: {e}"))
-}
-
-/// Reads a skin's sound bank back.
-pub fn read_sound_bank(skin_dir: &str) -> Result<BTreeMap<String, String>, String> {
-    let path = Path::new(skin_dir).join("sounds.yaml");
-
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("could not read '{}': {e}", path.display()))?;
-
-    let bank: SoundBank = serde_norway::from_str(&text)
-        .map_err(|e| format!("could not parse '{}': {e}", path.display()))?;
-
-    // Paths are stored relative to the skin so a package can be moved; the caller wants
-    // something it can open.
-    Ok(bank
-        .sounds
-        .into_iter()
-        .map(|(name, relative)| {
-            (
-                name,
-                Path::new(skin_dir).join(relative).to_string_lossy().into_owned(),
-            )
-        })
-        .collect())
 }
 
 /// Finds every hit sound in the skin and copies it into the package.
@@ -585,7 +541,7 @@ mod tests {
         let skin = import(source.to_str().unwrap(), out.to_str().unwrap()).unwrap();
         assert_eq!(skin.sound_count, 2);
 
-        let bank = read_sound_bank(out.to_str().unwrap()).unwrap();
+        let bank = crate::skin::package::read_sound_bank(out.to_str().unwrap()).unwrap();
         assert!(bank.contains_key("normal-hitnormal"), "got {:?}", bank.keys());
         assert!(bank.contains_key("soft-hitclap2"));
 
@@ -681,7 +637,7 @@ mod tests {
 
         assert_eq!(skin.sound_count, 0);
         assert!(out.join("skin.yaml").is_file());
-        assert_eq!(read_sound_bank(out.to_str().unwrap()).unwrap().len(), 0);
+        assert_eq!(crate::skin::package::read_sound_bank(out.to_str().unwrap()).unwrap().len(), 0);
     }
 
     #[test]
@@ -697,7 +653,7 @@ mod tests {
         let yaml = fs::read_to_string(out.join("sounds.yaml")).unwrap();
         assert!(yaml.contains("drum-hitfinish"), "got:\n{yaml}");
 
-        let bank = read_sound_bank(out.to_str().unwrap()).unwrap();
+        let bank = crate::skin::package::read_sound_bank(out.to_str().unwrap()).unwrap();
         assert!(bank["drum-hitfinish"].ends_with("assets/sounds/drum-hitfinish.wav"));
     }
 

@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 
 import { NoteState, type PlayableChart } from '../chart/playable-chart.ts';
-import { JUDGEMENT_LABELS, type Judgement } from '../gameplay/hit-windows.ts';
+import type { Ruleset } from '../gameplay/ruleset.ts';
 import { VIRTUAL_HEIGHT, type Layout, type SkinTheme } from './skin-theme.ts';
 
 /**
@@ -59,15 +59,11 @@ const COLOURS = {
   missed: 0x4a3040,
 } as const;
 
-/** Colour of the flash a lane gives back when something is judged in it. */
-const JUDGEMENT_FLASH: Readonly<Record<Judgement, number>> = {
-  perfect: 0xffe08a,
-  great: 0x8ad7ff,
-  good: 0x8affa0,
-  ok: 0xd3b8ff,
-  meh: 0xffb454,
-  miss: 0xff6b6b,
-};
+/**
+ * Colour of a lane flash when the ruleset has not been set, or names a judgement it has no
+ * style for. Neither should happen; drawing something neutral beats drawing nothing.
+ */
+const UNKNOWN_JUDGEMENT_COLOUR = 0xffffff;
 
 /** How long a lane keeps glowing after a judgement, in milliseconds. */
 const FLASH_MS = 140;
@@ -142,7 +138,8 @@ export class Playfield {
 
   /** When each lane was last judged, and what it was, for the hit flash. */
   private readonly flashAt: Float64Array;
-  private readonly flashJudgement: (Judgement | null)[];
+  private ruleset: Ruleset | null = null;
+  private readonly flashJudgement: (string | null)[];
 
   constructor(app: Application, options: PlayfieldOptions = {}) {
     this.app = app;
@@ -184,12 +181,27 @@ export class Playfield {
   }
 
   /** Uses `theme` for charts whose key count it covers. Pass `null` for flat colour. */
+  /**
+   * The ruleset whose judgements are being drawn.
+   *
+   * The playfield knows nothing about what results exist or what they are called — it asks
+   * for a label and a colour by name. That is what lets a second format ship its own scale
+   * without touching this file.
+   */
+  setRuleset(ruleset: Ruleset | null): void {
+    this.ruleset = ruleset;
+  }
+
+  private judgementColour(judgement: string): number {
+    return this.ruleset?.styleFor(judgement).colour ?? UNKNOWN_JUDGEMENT_COLOUR;
+  }
+
   setSkin(skin: SkinTheme | null): void {
     this.skin = skin;
   }
 
   /** Records a judgement so its lane flashes. `nowMs` is wall time, not song time. */
-  notifyJudgement(column: number, judgement: Judgement, nowMs: number): void {
+  notifyJudgement(column: number, judgement: string, nowMs: number): void {
     if (column < 0 || column >= this.flashAt.length) return;
     this.flashAt[column] = nowMs;
     this.flashJudgement[column] = judgement;
@@ -451,7 +463,7 @@ export class Playfield {
       const strength = 1 - age / FLASH_MS;
       this.receptors
         .rect(x, receptorY - flashHeight * strength, width, flashHeight * strength)
-        .fill({ color: JUDGEMENT_FLASH[judgement], alpha: 0.45 * strength });
+        .fill({ color: this.judgementColour(judgement), alpha: 0.45 * strength });
     }
 
     void playable;
@@ -682,7 +694,7 @@ export class Playfield {
    * osu calls GREAT internally is labelled PERFECT on a mania skin, so drawing the skin's
    * own image is the only way the text on screen agrees with what the player expects.
    */
-  drawJudgement(judgement: Judgement | null, ageMs: number): void {
+  drawJudgement(judgement: string | null, ageMs: number): void {
     if (judgement === null || ageMs > JUDGEMENT_LIFE_MS) {
       this.judgementSprite.visible = false;
       this.judgementText.visible = false;
@@ -714,7 +726,7 @@ export class Playfield {
 
       const fontSize = JUDGEMENT_TEXT_SIZE * scale * pop;
       const text = this.judgementText;
-      text.text = JUDGEMENT_LABELS[judgement].toUpperCase();
+      text.text = (this.ruleset?.styleFor(judgement).label ?? judgement).toUpperCase();
       if (text.style.fontSize !== fontSize) text.style.fontSize = fontSize;
       text.x = x;
       text.y = y;

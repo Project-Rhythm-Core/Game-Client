@@ -1,12 +1,13 @@
-import { NoteState, type PlayableChart } from '../chart/playable-chart.ts';
+import { NoteState, type PlayableChart } from '../../chart/playable-chart.ts';
+import type { Judge, JudgementEvent } from '../ruleset.ts';
+import { ManiaHitWindows, RELEASE_WINDOW_LENIENCE } from './hit-windows.ts';
 import {
   JUDGEMENTS,
+  JUDGEMENT_BREAKS_COMBO,
   JUDGEMENT_WEIGHT,
   MAX_JUDGEMENT_WEIGHT,
-  ManiaHitWindows,
-  RELEASE_WINDOW_LENIENCE,
   type Judgement,
-} from './hit-windows.ts';
+} from './judgements.ts';
 
 /**
  * osu!mania judgement, following the lazer / ScoreV2 model.
@@ -19,29 +20,7 @@ import {
  * legitimately hide a note entirely or freeze it in place and it still has to be judged.
  */
 
-export interface JudgementEvent {
-  /** Index into `chart.notes`. */
-  noteIndex: number;
-  column: number;
-  judgement: Judgement;
-  /** Signed timing error in milliseconds; negative is early. `null` when never touched. */
-  errorMs: number | null;
-  /** Whether this judged the release of a hold rather than a press. */
-  isTail: boolean;
-}
-
-/** Running tally of a play. */
-export interface JudgementTotals {
-  counts: Record<Judgement, number>;
-  combo: number;
-  maxCombo: number;
-  /** 0 to 1. Reads 1 before anything has been judged. */
-  accuracy: number;
-  /** Every timing error recorded so far, for the error bar and unstable rate. */
-  errors: number[];
-}
-
-export class ManiaJudge {
+export class ManiaJudge implements Judge {
   readonly playable: PlayableChart;
   readonly windows: ManiaHitWindows;
 
@@ -247,8 +226,7 @@ export class ManiaJudge {
 
     if (errorMs !== null) this.errors.push(errorMs);
 
-    // Only a miss breaks combo in osu!mania; a MEH still counts.
-    if (judgement === 'miss') {
+    if (JUDGEMENT_BREAKS_COMBO[judgement]) {
       this.combo = 0;
     } else {
       this.combo++;
@@ -263,24 +241,4 @@ function emptyCounts(): Record<Judgement, number> {
   const counts = {} as Record<Judgement, number>;
   for (const judgement of JUDGEMENTS) counts[judgement] = 0;
   return counts;
-}
-
-/**
- * Unstable rate: ten times the standard deviation of the timing errors.
- *
- * The factor of ten is osu's convention, and the number is a better description of how
- * consistently someone is playing than accuracy is.
- */
-export function unstableRate(errors: readonly number[]): number {
-  if (errors.length < 2) return 0;
-
-  let mean = 0;
-  for (const error of errors) mean += error;
-  mean /= errors.length;
-
-  let variance = 0;
-  for (const error of errors) variance += (error - mean) ** 2;
-  variance /= errors.length;
-
-  return Math.sqrt(variance) * 10;
 }

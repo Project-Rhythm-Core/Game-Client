@@ -143,7 +143,7 @@ function loadSkin(folderName = DEFAULT_SKIN_FOLDER) {
   }
 
   const output = path.join(SKIN_CACHE, folderName);
-  const summary = core.importOsuSkin(source, output);
+  const summary = core.importSkin(source, output);
 
   return activate(output, { ...summary, imported: true });
 }
@@ -151,10 +151,16 @@ function loadSkin(folderName = DEFAULT_SKIN_FOLDER) {
 function activate(dir, info) {
   sounds = core.loadSkinSounds(dir);
 
-  const theme = core.readSkinTheme(dir, 'osu');
+  // Which theme to read comes from the package rather than from a format named here. A
+  // skin says what it themes; asking for `osu` regardless is how a second skin format
+  // would have silently loaded nothing.
+  const format = (info.themes ?? [])[0] ?? null;
+  const theme = format ? core.readSkinTheme(dir, format) : null;
+
   active = {
     ...info,
     dir,
+    format,
     soundCount: Object.keys(sounds).length,
     theme: theme ? JSON.parse(theme) : null,
   };
@@ -162,9 +168,14 @@ function activate(dir, info) {
   return active;
 }
 
-/** The active skin's theme for a source format, or `null` if it styles none. */
-function themeFor(format = 'osu') {
-  return active && active.theme && format === 'osu' ? active.theme : null;
+/**
+ * The active skin's visual theme, or `null` when it provides only sounds.
+ *
+ * Which source format it was authored for is the skin's business and is recorded on it;
+ * the renderer draws whatever it is handed.
+ */
+function theme() {
+  return active?.theme ?? null;
 }
 
 /** The skin currently loaded, if any. */
@@ -190,7 +201,7 @@ function resolveSample(mediaDir, file) {
 module.exports = {
   loadSkin,
   activeSkin,
-  themeFor,
+  theme,
   resolveSample,
   registerSkinScheme,
   serveSkinFiles,

@@ -115,7 +115,11 @@ export interface ChartSummary {
 
 /** The chart surface exposed on `window.electronAPI.chart`. */
 export interface ChartBridge {
-  importOsu(sourcePath: string): Promise<ImportedChart>;
+  /**
+   * Convert a source chart of any supported format and return it, with where its media
+   * lives. Which importer runs is decided in the main process from the file itself.
+   */
+  import(sourcePath: string): Promise<ImportedChart>;
   listBundled(): Promise<BundledChart[]>;
 }
 
@@ -124,7 +128,12 @@ export interface ActiveSkin {
   id: string;
   name: string;
   author: string;
-  /** Parsed from the skin's `osu.yaml`; `null` when it styles nothing. */
+  /**
+   * The skin's visual theme, already parsed; `null` when it provides only sounds.
+   *
+   * Which source format it was authored for is the skin's own business — it records that
+   * in its package and the main process reads whichever it declares.
+   */
   theme: unknown | null;
 }
 

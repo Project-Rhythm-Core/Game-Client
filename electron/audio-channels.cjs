@@ -24,7 +24,7 @@ const AUDIO_CHANNEL = Object.freeze({
 /** @type {Readonly<Record<string, string>>} */
 const CHART_CHANNEL = Object.freeze({
   /** Convert a source chart and return it, along with the folder its media lives in. */
-  importOsu: 'chart:import-osu',
+  import: 'chart:import',
   /** List the source charts bundled with the build, for picking one to play. */
   listBundled: 'chart:list-bundled',
 });

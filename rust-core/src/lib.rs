@@ -337,6 +337,21 @@ pub fn set_offset_ms(offset_ms: f64) {
     }
 }
 
+/// File extensions this build can import a chart from, lowercase and without the dot.
+///
+/// Exposed so a caller scanning a song folder does not have to keep its own copy of the
+/// list — which is exactly how `.osu` came to be spelled out in the shell.
+#[napi]
+pub fn chart_extensions() -> Vec<String> {
+    chart::supported_extensions()
+}
+
+/// Source skin formats this build can import, by the name their theme is stored under.
+#[napi]
+pub fn skin_formats() -> Vec<String> {
+    skin::IMPORTERS.iter().map(|i| i.format.to_string()).collect()
+}
+
 /// What a conversion produced. The chart itself goes to disk rather than across the
 /// boundary: marshalling tens of thousands of notes into JavaScript objects would cost
 /// far more than writing the file.
@@ -371,7 +386,7 @@ impl Task for ConvertChartTask {
 
     /// Runs on a libuv worker: parsing a marathon chart is tens of thousands of lines.
     fn compute(&mut self) -> Result<Self::Output> {
-        let converted = chart::osu::convert_to_json_file(&self.source_path, &self.output_path)
+        let converted = chart::convert_to_json_file(&self.source_path, &self.output_path)
             .map_err(engine_error)?;
         Ok((converted, self.output_path.clone()))
     }
@@ -395,13 +410,14 @@ impl Task for ConvertChartTask {
     }
 }
 
-/// Converts an osu!mania `.osu` file into the game's chart format and writes it to
-/// `outputPath` as JSON.
+/// Converts a source chart into the game's format and writes it to `outputPath` as JSON.
 ///
-/// Rejects charts that are not mode 3, and any chart that violates the format's
-/// invariants — better to fail at import than to ship something the runtime misreads.
+/// The importer is chosen from the file itself, so callers ask for "a chart" rather than
+/// naming a format. Rejects anything no importer claims, anything the importer refuses —
+/// an osu file that is not mode 3, say — and any chart that violates the format's
+/// invariants. Better to fail at import than to ship something the runtime misreads.
 #[napi(ts_return_type = "Promise<ChartSummary>")]
-pub fn convert_osu_chart(source_path: String, output_path: String) -> AsyncTask<ConvertChartTask> {
+pub fn convert_chart(source_path: String, output_path: String) -> AsyncTask<ConvertChartTask> {
     AsyncTask::new(ConvertChartTask {
         source_path,
         output_path,
@@ -420,16 +436,19 @@ pub struct SkinSummary {
     pub layout_count: u32,
     /// Distinct textures copied.
     pub texture_count: u32,
+    /// Source formats this skin has a visual theme for, to pass to `readSkinTheme`.
+    pub themes: Vec<String>,
     pub output_path: String,
 }
 
-/// Converts an osu skin folder into the game's own package.
+/// Converts a source skin folder into the game's own package.
 ///
-/// Only what transfers is taken. osu's positional values are pixels in its fixed stage
-/// and are deliberately left behind.
+/// The importer is chosen by recognising the folder, since a skin does not announce its
+/// format. Only what transfers is taken: osu's positional values are pixels in its fixed
+/// stage and are deliberately left behind.
 #[napi]
-pub fn import_osu_skin(source_dir: String, output_dir: String) -> Result<SkinSummary> {
-    let imported = skin::osu::import(&source_dir, &output_dir).map_err(engine_error)?;
+pub fn import_skin(source_dir: String, output_dir: String) -> Result<SkinSummary> {
+    let imported = skin::import(&source_dir, &output_dir).map_err(engine_error)?;
 
     Ok(SkinSummary {
         id: imported.id,
@@ -438,6 +457,7 @@ pub fn import_osu_skin(source_dir: String, output_dir: String) -> Result<SkinSum
         sound_count: imported.sound_count as u32,
         layout_count: imported.layout_count as u32,
         texture_count: imported.texture_count as u32,
+        themes: imported.themes.clone(),
         output_path: imported.output_dir.to_string_lossy().into_owned(),
     })
 }
@@ -445,7 +465,7 @@ pub fn import_osu_skin(source_dir: String, output_dir: String) -> Result<SkinSum
 /// Reads a skin package's manifest.
 #[napi]
 pub fn read_skin_manifest(skin_dir: String) -> Result<SkinSummary> {
-    let manifest = skin::osu::read_manifest(&skin_dir).map_err(engine_error)?;
+    let manifest = skin::package::read_manifest(&skin_dir).map_err(engine_error)?;
 
     Ok(SkinSummary {
         id: manifest.id,
@@ -454,6 +474,7 @@ pub fn read_skin_manifest(skin_dir: String) -> Result<SkinSummary> {
         sound_count: 0,
         layout_count: 0,
         texture_count: 0,
+        themes: manifest.provides.themes.clone(),
         output_path: skin_dir,
     })
 }
@@ -464,7 +485,7 @@ pub fn read_skin_manifest(skin_dir: String) -> Result<SkinSummary> {
 /// may provide only sounds.
 #[napi]
 pub fn read_skin_theme(skin_dir: String, format: String) -> Option<String> {
-    skin::osu::read_theme_json(&skin_dir, &format).ok()
+    skin::package::read_theme_json(&skin_dir, &format).ok()
 }
 
 /// Reads a skin's sound bank, as absolute paths keyed by the name a chart asks for.
@@ -474,7 +495,7 @@ pub fn read_skin_theme(skin_dir: String, format: String) -> Option<String> {
 /// without providing it, so without this the whole chart plays with no hit sounds at all.
 #[napi]
 pub fn load_skin_sounds(skin_dir: String) -> Result<HashMap<String, String>> {
-    let bank = skin::osu::read_sound_bank(&skin_dir).map_err(engine_error)?;
+    let bank = skin::package::read_sound_bank(&skin_dir).map_err(engine_error)?;
     Ok(bank.into_iter().collect())
 }
 

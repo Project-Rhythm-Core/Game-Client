@@ -7,13 +7,11 @@
   import { PlayableChart } from './lib/chart/playable-chart.ts';
   import {
     ColumnInput,
-    JUDGEMENT_LABELS,
-    JUDGEMENTS,
-    ManiaJudge,
     defaultLayout,
+    rulesetFor,
     unstableRate,
   } from './lib/gameplay/index.ts';
-  import type { Judgement } from './lib/gameplay/index.ts';
+  import type { Judge, Ruleset } from './lib/gameplay/index.ts';
   import { FrameCounter, Playfield, SkinTheme } from './lib/render/index.ts';
 
   /** How long a judgement stays on screen. */
@@ -52,7 +50,10 @@
    * still reacts to.
    */
   let skinTheme = $state.raw<SkinTheme | null>(null);
-  let judge = $state.raw<ManiaJudge | null>(null);
+
+  /** Whose rules the loaded chart is played by, chosen from its own origin format. */
+  let ruleset = $state.raw<Ruleset | null>(null);
+  let judge = $state.raw<Judge | null>(null);
   const input = new ColumnInput(audioClock, {
     onPress: (column, songTimeMs) => {
       const event = judge?.press(column, songTimeMs);
@@ -70,7 +71,7 @@
     },
   });
 
-  let lastJudgement = $state<{ judgement: Judgement; errorMs: number | null } | null>(null);
+  let lastJudgement = $state<{ judgement: string; errorMs: number | null } | null>(null);
   let lastJudgementAt = 0;
 
   /** Fires whatever sounds a note carries. Silent for charts that have none. */
@@ -92,7 +93,18 @@
     return last + 5000;
   }
 
-  function flash(judgement: Judgement, errorMs: number | null, column: number) {
+  /**
+   * A judgement's colour as CSS.
+   *
+   * The ruleset stores colours as Pixi numbers because that is what the playfield draws
+   * with; the HUD is the one place that needs them as text.
+   */
+  function colourOf(judgement: string): string {
+    const colour = ruleset?.styleFor(judgement).colour ?? 0xffffff;
+    return `#${colour.toString(16).padStart(6, '0')}`;
+  }
+
+  function flash(judgement: string, errorMs: number | null, column: number) {
     lastJudgement = { judgement, errorMs };
     lastJudgementAt = performance.now();
     playfield?.notifyJudgement(column, judgement, lastJudgementAt);
@@ -145,7 +157,7 @@
   let hud = $state({
     positionMs: 0, scroll: 0, velocity: 1, drawn: 0,
     combo: 0, maxCombo: 0, accuracy: 1, unstableRate: 0,
-    counts: { perfect: 0, great: 0, good: 0, ok: 0, meh: 0, miss: 0 } as Record<Judgement, number>,
+    counts: {} as Record<string, number>,
     fps: 0, frameMs: 0, worstMs: 0, updateMs: 0, worstUpdateMs: 0, load: 0, longFrames: 0,
   });
 
@@ -196,12 +208,20 @@
     status = 'converting…';
 
     try {
-      imported = await window.electronAPI.chart.importOsu(selected);
+      imported = await window.electronAPI.chart.import(selected);
+
+      // Which rules to play by is the chart's own business: it says where it came from,
+      // and a ruleset claims that format. Refusing beats guessing — judging a chart by
+      // rules its charter never had in mind would be wrong, and silently so.
+      ruleset = rulesetFor(imported.chart.origin.format);
+      if (!ruleset) {
+        throw new Error(`no ruleset plays '${imported.chart.origin.format}' charts`);
+      }
+
       playable = new PlayableChart(imported.chart, { constantVelocity });
-      // Overall difficulty is kept in the chart's provenance: it is an osu concept, not
-      // one the format needs a field of its own for.
-      judge = new ManiaJudge(playable, imported.chart.origin.values.overallDifficulty ?? 5);
+      judge = ruleset.createJudge(playable);
       input.setLayout(defaultLayout(imported.chart.columns.length));
+      playfield?.setRuleset(ruleset);
       playfield?.drawLanes(playable);
 
       clock = audioClock;
@@ -283,7 +303,7 @@
   function rebuild() {
     if (!imported) return;
     playable = new PlayableChart(imported.chart, { constantVelocity });
-    judge = new ManiaJudge(playable, imported.chart.origin.values.overallDifficulty ?? 5);
+    judge = ruleset?.createJudge(playable) ?? null;
     playfield?.drawLanes(playable);
     playing = false;
   }
@@ -313,7 +333,9 @@
         hud.maxCombo = judge.maxCombo;
         hud.accuracy = judge.accuracy;
         hud.unstableRate = unstableRate(judge.errors);
-        for (const judgement of JUDGEMENTS) hud.counts[judgement] = judge.counts[judgement];
+        for (const judgement of ruleset?.judgements ?? []) {
+          hud.counts[judgement] = judge.counts[judgement] ?? 0;
+        }
       }
 
       playfield.drawReceptors(playable, (column) => input.isHeld(column), workStart);
@@ -421,9 +443,10 @@
     <div class="rule"></div>
     <div>{(hud.accuracy * 100).toFixed(2)}% · {hud.combo}x <span class="dim">(max {hud.maxCombo})</span></div>
     <div class="dim">UR {hud.unstableRate.toFixed(1)}</div>
-    {#each JUDGEMENTS as judgement (judgement)}
+    {#each ruleset?.judgements ?? [] as judgement (judgement)}
       <div class="tally">
-        <span class="j j-{judgement}">{JUDGEMENT_LABELS[judgement]}</span> {hud.counts[judgement]}
+        <span style="color: {colourOf(judgement)}">{ruleset?.styleFor(judgement).label}</span>
+        {hud.counts[judgement] ?? 0}
       </div>
     {/each}
     {#if silent}
@@ -463,7 +486,7 @@
      left here is the timing error, which osu shows nowhere and which is the reason to
      look at this line at all. -->
 {#if lastJudgement && lastJudgement.errorMs !== null}
-  <div class="flash j-{lastJudgement.judgement}">
+  <div class="flash" style="color: {colourOf(lastJudgement.judgement)}">
     <span class="offset">{lastJudgement.errorMs > 0 ? '+' : ''}{lastJudgement.errorMs.toFixed(0)} ms</span>
   </div>
 {/if}
@@ -571,13 +594,6 @@
     justify-content: space-between;
     gap: 12px;
   }
-
-  .j-perfect { color: #ffe08a; }
-  .j-great   { color: #8ad7ff; }
-  .j-good    { color: #8affa0; }
-  .j-ok      { color: #d3b8ff; }
-  .j-meh     { color: #ffb454; }
-  .j-miss    { color: #ff6b6b; }
 
   .flash {
     position: fixed;

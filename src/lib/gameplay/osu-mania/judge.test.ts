@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { NoteState, PlayableChart } from '../chart/playable-chart.ts';
-import type { Chart, Note } from '../chart/types.ts';
-import { ManiaJudge, unstableRate } from './mania-judge.ts';
+import { NoteState, PlayableChart } from '../../chart/playable-chart.ts';
+import type { Chart, Note } from '../../chart/types.ts';
+import { ManiaJudge } from './judge.ts';
 import { ManiaHitWindows, RELEASE_WINDOW_LENIENCE } from './hit-windows.ts';
+import { unstableRate } from '../stats.ts';
 
 const OD = 8;
 

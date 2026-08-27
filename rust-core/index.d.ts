@@ -31,6 +31,14 @@ export interface ChartAudioRequest {
 }
 
 /**
+ * File extensions this build can import a chart from, lowercase and without the dot.
+ *
+ * Exposed so a caller scanning a song folder does not have to keep its own copy of the
+ * list — which is exactly how `.osu` came to be spelled out in the shell.
+ */
+export declare function chartExtensions(): Array<string>
+
+/**
  * What a conversion produced. The chart itself goes to disk rather than across the
  * boundary: marshalling tens of thousands of notes into JavaScript objects would cost
  * far more than writing the file.
@@ -55,13 +63,14 @@ export interface ChartSummary {
 }
 
 /**
- * Converts an osu!mania `.osu` file into the game's chart format and writes it to
- * `outputPath` as JSON.
+ * Converts a source chart into the game's format and writes it to `outputPath` as JSON.
  *
- * Rejects charts that are not mode 3, and any chart that violates the format's
- * invariants — better to fail at import than to ship something the runtime misreads.
+ * The importer is chosen from the file itself, so callers ask for "a chart" rather than
+ * naming a format. Rejects anything no importer claims, anything the importer refuses —
+ * an osu file that is not mode 3, say — and any chart that violates the format's
+ * invariants. Better to fail at import than to ship something the runtime misreads.
  */
-export declare function convertOsuChart(sourcePath: string, outputPath: string): Promise<ChartSummary>
+export declare function convertChart(sourcePath: string, outputPath: string): Promise<ChartSummary>
 
 /** Sounds dropped because the trigger queue backed up. Should stay at zero. */
 export declare function droppedSampleCount(): number
@@ -77,12 +86,13 @@ export declare function getPositionMs(): number
 export declare function getStats(): PlaybackStats
 
 /**
- * Converts an osu skin folder into the game's own package.
+ * Converts a source skin folder into the game's own package.
  *
- * Only what transfers is taken. osu's positional values are pixels in its fixed stage
- * and are deliberately left behind.
+ * The importer is chosen by recognising the folder, since a skin does not announce its
+ * format. Only what transfers is taken: osu's positional values are pixels in its fixed
+ * stage and are deliberately left behind.
  */
-export declare function importOsuSkin(sourceDir: string, outputDir: string): SkinSummary
+export declare function importSkin(sourceDir: string, outputDir: string): SkinSummary
 
 /**
  * True once the device is up to speed and `play()` will be heard immediately.
@@ -186,6 +196,9 @@ export interface ScheduledSoundInput {
  */
 export declare function setOffsetMs(offsetMs: number): void
 
+/** Source skin formats this build can import, by the name their theme is stored under. */
+export declare function skinFormats(): Array<string>
+
 /** What importing a skin produced. */
 export interface SkinSummary {
   id: string
@@ -197,6 +210,8 @@ export interface SkinSummary {
   layoutCount: number
   /** Distinct textures copied. */
   textureCount: number
+  /** Source formats this skin has a visual theme for, to pass to `readSkinTheme`. */
+  themes: Array<string>
   outputPath: string
 }
 
