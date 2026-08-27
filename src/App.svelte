@@ -15,10 +15,13 @@
     ColumnInput,
     defaultLayout,
     meanError,
+    offsetIsWorthMoving,
     rulesetFor,
+    suggestedOffsetMs,
+    summariseErrors,
     unstableRate,
   } from './lib/gameplay/index.ts';
-  import type { Judge, Ruleset } from './lib/gameplay/index.ts';
+  import type { ErrorSummary, Judge, Ruleset } from './lib/gameplay/index.ts';
   import { FrameCounter, Playfield, SkinTheme } from './lib/render/index.ts';
 
   /** How long a judgement stays on screen. */
@@ -34,6 +37,17 @@
    * and blending are not identical between the two.
    */
   const RENDERER_PREFERENCE = 'webgpu';
+
+  /**
+   * How far the mean has to sit from zero before moving the offset is worth it.
+   *
+   * Below this it is noise from a handful of notes rather than a real bias, and chasing it
+   * would have the player re-calibrating after every play.
+   */
+  const OFFSET_WORTH_MOVING_MS = 5;
+
+  /** The range the offset slider covers, and so the range a suggestion may land in. */
+  const OFFSET_LIMIT_MS = 100;
 
   /**
    * The canvas formats worth swapping Pixi's default for.
@@ -75,6 +89,24 @@
 
   /** How long this chart waits before its music starts. Zero when its intro has room. */
   let leadInMs = $state(0);
+
+  /**
+   * When nothing is left to judge, in chart milliseconds.
+   *
+   * The last note's own end plus however long it stays reachable — so the play is over the
+   * moment the final judgement can no longer change, rather than when the audio runs out,
+   * which on most charts is much later.
+   */
+  let finishedAtMs = $state(Infinity);
+
+  /**
+   * The summary shown once the play is over. `null` while playing or before starting.
+   *
+   * Presses and releases are summarised apart. A release is its own judgement on its own
+   * window, so its average answers a different question — and it is the presses alone that
+   * the offset should be calibrated from.
+   */
+  let result = $state.raw<{ press: ErrorSummary; release: ErrorSummary } | null>(null);
 
   /** The backend Pixi actually built, which is not always the one that was asked for. */
   let backend = $state('');
@@ -211,6 +243,7 @@
     positionMs: 0, scroll: 0, velocity: 1, drawn: 0,
     combo: 0, maxCombo: 0, accuracy: 1, unstableRate: 0, meanErrorMs: 0,
     counts: {} as Record<string, number>,
+    syncErrorMs: 0, roundTripMs: 0, voices: 0, droppedSamples: 0,
     fps: 0, frameMs: 0, worstMs: 0, updateMs: 0, worstUpdateMs: 0, load: 0, longFrames: 0,
   });
 
@@ -341,6 +374,8 @@
       const firstNoteMs = imported.chart.notes[0]?.timeMs ?? 0;
       leadInMs = leadInFor(firstNoteMs, imported.chart.audio?.leadInMs ?? 0);
 
+      result = null;
+
       status = imported.samplePaths.length
         ? `decoding audio and ${imported.samplePaths.length} samples…`
         : 'decoding audio…';
@@ -357,6 +392,18 @@
         })),
         durationMs: chartLengthMs(imported.chart),
       });
+
+      // Only now, because the clock clamps its position to the length of what was decoded.
+      // A chart whose last note sits near the end of its audio would otherwise never reach
+      // a deadline past that length, and the play would never be seen to finish.
+      let lastNoteMs = 0;
+      for (const note of imported.chart.notes) {
+        lastNoteMs = Math.max(lastNoteMs, note.endMs ?? note.timeMs);
+      }
+      finishedAtMs = Math.min(
+        lastNoteMs + judge.latestHitMs,
+        audioClock.info?.durationMs ?? Infinity,
+      );
 
       status = 'waiting for the device…';
       if (!(await audioClock.waitUntilReady())) {
@@ -386,6 +433,7 @@
       judge?.reset();
       input.releaseAll();
       lastJudgement = null;
+      result = null;
       playfield?.clearFlashes();
       // The tally is per attempt: hitches from loading say nothing about this run.
       frames.reset();
@@ -419,6 +467,17 @@
     }
   }
 
+  /** Takes the summary's advice and dials it into the engine. */
+  function applySuggestedOffset() {
+    if (!result) return;
+
+    // Clamped to what the slider can show. Letting the engine hold a value the control
+    // cannot display would leave the two disagreeing with no way to see it.
+    const suggested = Math.round(suggestedOffsetMs(audioOffsetMs, result.press));
+    audioOffsetMs = Math.max(-OFFSET_LIMIT_MS, Math.min(OFFSET_LIMIT_MS, suggested));
+    void window.electronAPI.audio.setOffsetMs(audioOffsetMs);
+  }
+
   function report(e: unknown) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -448,6 +507,16 @@
       const visualMs = positionMs + visualLeadFrames * frames.displayPeriodMs;
       const scroll = playable.scroll.positionAt(visualMs);
 
+      // The play ends when the last judgement can no longer change, not when the audio
+      // stops: a chart's outro can run for another minute and there is nothing left to do
+      // in it.
+      if (playing && judge && !result && positionMs >= finishedAtMs) {
+        result = {
+          press: summariseErrors(judge.pressErrors),
+          release: summariseErrors(judge.releaseErrors),
+        };
+      }
+
       if (playing && judge) {
         // Writing off expired notes runs on time, never on screen position: a chart can
         // hide notes entirely or freeze them in place, and both still have to be judged.
@@ -456,8 +525,8 @@
         hud.combo = judge.combo;
         hud.maxCombo = judge.maxCombo;
         hud.accuracy = judge.accuracy;
-        hud.unstableRate = unstableRate(judge.errors);
-        hud.meanErrorMs = meanError(judge.errors);
+        hud.unstableRate = unstableRate(judge.pressErrors);
+        hud.meanErrorMs = meanError(judge.pressErrors);
         for (const judgement of ruleset?.judgements ?? []) {
           hud.counts[judgement] = judge.counts[judgement] ?? 0;
         }
@@ -470,6 +539,15 @@
         lastJudgement?.judgement ?? null,
         lastJudgement ? workStart - lastJudgementAt : Infinity,
       );
+
+      // Read through `hud` rather than straight off the clock in the template. `audioClock`
+      // is an ordinary class instance, not `$state`, so a text node that reads its fields
+      // has nothing reactive to depend on and renders once with whatever it said at start
+      // up — which is how the sync readouts sat at zero all the way through a play.
+      hud.syncErrorMs = audioClock.syncErrorMs;
+      hud.roundTripMs = audioClock.roundTripMs;
+      hud.voices = audioClock.stats?.activeVoices ?? 0;
+      hud.droppedSamples = audioClock.stats?.droppedSamples ?? 0;
 
       hud.positionMs = positionMs;
       hud.scroll = scroll;
@@ -542,7 +620,7 @@
 
   <label class="speed">
     offset
-    <input type="range" min="-100" max="100" step="1" bind:value={audioOffsetMs}
+    <input type="range" min={-OFFSET_LIMIT_MS} max={OFFSET_LIMIT_MS} step="1" bind:value={audioOffsetMs}
       oninput={() => void window.electronAPI.audio.setOffsetMs(audioOffsetMs)} />
     {audioOffsetMs > 0 ? '+' : ''}{audioOffsetMs} ms
   </label>
@@ -604,13 +682,13 @@
       <div class="dim">no audio · system clock</div>
     {:else}
       <div class="dim">
-        sync {audioClock.syncErrorMs.toFixed(2)} ms · rtt {audioClock.roundTripMs.toFixed(2)} ms
+        sync {hud.syncErrorMs.toFixed(2)} ms · rtt {hud.roundTripMs.toFixed(2)} ms
         {useWallClock ? ' · WALL CLOCK' : ''}
       </div>
       <div class="dim">
-        voices {audioClock.stats?.activeVoices ?? 0}
-        {#if (audioClock.stats?.droppedSamples ?? 0) > 0}
-          <span class="warn">· {audioClock.stats?.droppedSamples} dropped</span>
+        voices {hud.voices}
+        {#if hud.droppedSamples > 0}
+          <span class="warn">· {hud.droppedSamples} dropped</span>
         {/if}
       </div>
     {/if}
@@ -639,6 +717,77 @@
 {#if lastJudgement && lastJudgement.errorMs !== null}
   <div class="flash" style="color: {colourOf(lastJudgement.judgement)}">
     <span class="offset">{lastJudgement.errorMs > 0 ? '+' : ''}{lastJudgement.errorMs.toFixed(0)} ms</span>
+  </div>
+{/if}
+
+<!-- The end-of-play summary. Its whole job is answering one question — does the offset
+     need moving — so the two halves and the suggestion are the point, and everything else
+     is context for them. -->
+{#if result}
+  <div class="result">
+    <div class="result-head">
+      {((judge?.accuracy ?? 0) * 100).toFixed(2)}%
+      <span class="dim">· {judge?.maxCombo ?? 0}x max</span>
+    </div>
+
+    <div class="rule"></div>
+
+    {#if result.press.total === 0 && result.release.total === 0}
+      <div class="dim">nothing was judged, so there is no timing to read</div>
+    {:else}
+      <div class="grid">
+        <span></span>
+        <span class="dim">early</span>
+        <span class="dim">late</span>
+        <span class="dim">mean</span>
+
+        <span class="dim row">hits</span>
+        <span class="early">{result.press.earlyMean.toFixed(1)}<small>{result.press.earlyCount}</small></span>
+        <span class="late">+{result.press.lateMean.toFixed(1)}<small>{result.press.lateCount}</small></span>
+        <strong class:warn={offsetIsWorthMoving(result.press, OFFSET_WORTH_MOVING_MS)}>
+          {result.press.mean > 0 ? '+' : ''}{result.press.mean.toFixed(1)}
+        </strong>
+
+        <!-- Releases only exist on a chart with holds, and their window is half again as
+             wide, so their average is its own reading rather than part of the one above. -->
+        {#if result.release.total > 0}
+          <span class="dim row">releases</span>
+          <span class="early">{result.release.earlyMean.toFixed(1)}<small>{result.release.earlyCount}</small></span>
+          <span class="late">+{result.release.lateMean.toFixed(1)}<small>{result.release.lateCount}</small></span>
+          <strong>{result.release.mean > 0 ? '+' : ''}{result.release.mean.toFixed(1)}</strong>
+        {/if}
+      </div>
+
+      <div class="dim">
+        ± {result.press.standardError.toFixed(1)} on the hits · UR {unstableRate(
+          judge?.pressErrors ?? [],
+        ).toFixed(1)}
+      </div>
+
+      <div class="rule"></div>
+
+      {#if offsetIsWorthMoving(result.press, OFFSET_WORTH_MOVING_MS)}
+        <button class="apply" onclick={applySuggestedOffset}>
+          set offset to {suggestedOffsetMs(audioOffsetMs, result.press) > 0 ? '+' : ''}{Math.round(
+            suggestedOffsetMs(audioOffsetMs, result.press),
+          )} ms
+        </button>
+        <div class="dim hint">
+          you hit {Math.abs(result.press.mean).toFixed(0)} ms
+          {result.press.mean < 0 ? 'early' : 'late'} on average, by more than the scatter can
+          account for
+        </div>
+      {:else if Math.abs(result.press.mean) > OFFSET_WORTH_MOVING_MS}
+        <div class="dim hint">
+          the mean is off centre but the scatter is wider than the gap — play it again before
+          trusting it
+        </div>
+      {:else}
+        <div class="dim hint">
+          centred within {OFFSET_WORTH_MOVING_MS} ms — the offset is fine, the spread is practice
+        </div>
+      {/if}
+    {/if}
   </div>
 {/if}
 
@@ -784,6 +933,75 @@
     height: 1px;
     margin: 6px 0;
     background: var(--border);
+  }
+
+  .result {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
+    min-width: 260px;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--panel) 96%, transparent);
+    font-family: ui-monospace, 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    text-align: center;
+  }
+
+  .result-head {
+    font-size: 20px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: auto repeat(3, minmax(64px, auto));
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px 14px;
+    margin: 6px 0 2px;
+    font-size: 15px;
+  }
+
+  .grid .dim {
+    font-size: 11px;
+  }
+
+  .grid .row {
+    text-align: right;
+    padding-right: 4px;
+  }
+
+  .grid small {
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .grid strong {
+    font-weight: 500;
+  }
+
+  .early { color: #8ad7ff; }
+  .late  { color: #ffb454; }
+
+  .apply {
+    font: inherit;
+    color: var(--text);
+    background: #1e1e28;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+
+  .hint {
+    margin-top: 6px;
+    font-size: 11px;
+    max-width: 30ch;
   }
 
   .error {

@@ -230,7 +230,8 @@ test('reset returns everything to the start', () => {
   assert.equal(judge.combo, 0);
   assert.equal(judge.maxCombo, 0);
   assert.equal(judge.accuracy, 1);
-  assert.equal(judge.errors.length, 0);
+  assert.equal(judge.pressErrors.length, 0);
+  assert.equal(judge.releaseErrors.length, 0);
   assert.equal(judge.playable.headStates[0], NoteState.Pending);
   assert.equal(judge.press(0, 1000)?.judgement, 'perfect');
 });
@@ -242,4 +243,25 @@ test('unstable rate is ten times the spread of the timing errors', () => {
 
   // Errors of -10 and +10 have a standard deviation of 10.
   assert.ok(Math.abs(unstableRate([-10, 10]) - 100) < 1e-9);
+});
+
+// --- presses and releases are measured apart --------------------------------
+
+test('a release records its error away from the presses', () => {
+  // They are judged on different windows, so pooling them would describe neither.
+  const judge = judgeOf([{ timeMs: 1000, column: 0, endMs: 2000 }]);
+
+  judge.press(0, 1000 + 8);
+  judge.release(0, 2000 - 30);
+
+  assert.deepEqual(judge.pressErrors, [8]);
+  assert.deepEqual(judge.releaseErrors, [-30]);
+});
+
+test('a chart with no holds records no release errors at all', () => {
+  const judge = judgeOf([{ timeMs: 1000, column: 0 }]);
+  judge.press(0, 1005);
+
+  assert.deepEqual(judge.pressErrors, [5]);
+  assert.deepEqual(judge.releaseErrors, []);
 });

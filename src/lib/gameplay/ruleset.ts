@@ -69,8 +69,20 @@ export interface Judge {
   readonly maxCombo: number;
   /** 0 to 1, by whatever the ruleset counts as accuracy. Reads 1 before anything lands. */
   readonly accuracy: number;
-  /** Signed timing errors, oldest first. Feeds the error bar and the unstable rate. */
-  readonly errors: readonly number[];
+  /**
+   * Signed timing errors from key presses, oldest first.
+   *
+   * Presses and releases are kept apart rather than pooled, and the reason is not tidiness:
+   * a ruleset that judges a release at all tends to judge it more leniently — osu!mania
+   * widens the window by half again — so the two populations have genuinely different
+   * spreads. Averaging them together produces a mean that describes neither, which matters
+   * because that mean is what an offset is calibrated from. A chart that is three-quarters
+   * hold notes would calibrate mostly on releases.
+   */
+  readonly pressErrors: readonly number[];
+
+  /** Signed timing errors from releases. Empty for a chart with no holds. */
+  readonly releaseErrors: readonly number[];
   /** Whether `column` currently has a hold in progress. */
   isHolding(column: number): boolean;
 

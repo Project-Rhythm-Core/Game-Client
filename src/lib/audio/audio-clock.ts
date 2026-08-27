@@ -48,6 +48,8 @@ interface ClockProbe {
   roundTripMs: number;
   /** The `performance.now()` value at which playback position was 0. */
   originMs: number;
+  /** What the engine reported, kept to tell a running track from a finished one. */
+  positionMs: number;
 }
 
 export class AudioClock implements PlaybackClock {
@@ -221,7 +223,7 @@ export class AudioClock implements PlaybackClock {
    * in — the same reasoning NTP uses.
    */
   private async probe(count: number): Promise<ClockProbe> {
-    let best: ClockProbe = { roundTripMs: Infinity, originMs: 0 };
+    let best: ClockProbe = { roundTripMs: Infinity, originMs: 0, positionMs: 0 };
 
     for (let i = 0; i < count; i++) {
       const sentAt = performance.now();
@@ -233,6 +235,7 @@ export class AudioClock implements PlaybackClock {
         best = {
           roundTripMs,
           originMs: (sentAt + receivedAt) / 2 - positionMs,
+          positionMs,
         };
       }
     }
@@ -249,6 +252,17 @@ export class AudioClock implements PlaybackClock {
     // A probe much slower than the handshake is dominated by IPC jitter. Correcting
     // with it would be worse than not correcting at all.
     if (probe.roundTripMs > Math.max(this.roundTripMs * 4, 8)) return;
+
+    // Past the end of the track the engine clamps its own position, so the origin this
+    // arithmetic derives runs forward by a whole interval every interval while the track
+    // stands still. Correcting from that is meaningless, and reporting it is worse than
+    // meaningless: it reads as half a second of desync on a chart that played perfectly.
+    // Stats still refresh, because voices and dropped samples are real either way.
+    const durationMs = this.info?.durationMs ?? Infinity;
+    if (probe.positionMs >= durationMs) {
+      this.stats = await this.bridge.stats();
+      return;
+    }
 
     this.syncErrorMs = probe.originMs - this.originMs;
 

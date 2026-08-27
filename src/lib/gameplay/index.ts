@@ -1,6 +1,13 @@
 export { ColumnInput, defaultLayout } from './input.ts';
 export type { ColumnInputHandlers } from './input.ts';
-export { meanError, unstableRate } from './stats.ts';
+export {
+  meanError,
+  offsetIsWorthMoving,
+  suggestedOffsetMs,
+  summariseErrors,
+  unstableRate,
+} from './stats.ts';
+export type { ErrorSummary } from './stats.ts';
 export {
   registerRuleset,
   rulesetFor,

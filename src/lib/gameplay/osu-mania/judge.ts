@@ -28,8 +28,11 @@ export class ManiaJudge implements Judge {
   combo = 0;
   maxCombo = 0;
 
-  /** Signed timing errors, oldest first. Both presses and releases contribute. */
-  readonly errors: number[] = [];
+  /** Signed timing errors from presses, oldest first. */
+  readonly pressErrors: number[] = [];
+
+  /** Signed timing errors from releases, which are judged on a wider window. */
+  readonly releaseErrors: number[] = [];
 
   /** Note index each column is currently holding, or `-1`. */
   private readonly activeHold: Int32Array;
@@ -50,7 +53,8 @@ export class ManiaJudge implements Judge {
     for (const judgement of JUDGEMENTS) this.counts[judgement] = 0;
     this.combo = 0;
     this.maxCombo = 0;
-    this.errors.length = 0;
+    this.pressErrors.length = 0;
+    this.releaseErrors.length = 0;
     this.weightedTotal = 0;
     this.judgedCount = 0;
   }
@@ -229,7 +233,7 @@ export class ManiaJudge implements Judge {
     this.weightedTotal += JUDGEMENT_WEIGHT[judgement];
     this.judgedCount++;
 
-    if (errorMs !== null) this.errors.push(errorMs);
+    if (errorMs !== null) (isTail ? this.releaseErrors : this.pressErrors).push(errorMs);
 
     if (JUDGEMENT_BREAKS_COMBO[judgement]) {
       this.combo = 0;
