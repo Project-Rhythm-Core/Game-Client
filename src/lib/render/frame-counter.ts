@@ -50,6 +50,22 @@ export class FrameCounter {
   /** Worst update time in the last completed window, in milliseconds. */
   worstUpdateMs = 0;
 
+  /**
+   * Time the renderer spent submitting the last frame, in milliseconds.
+   *
+   * Separate from {@link updateMs} because they are separate costs and only one of them is
+   * the caller's own. `updateMs` is deciding *what* to draw — setting positions, picking
+   * textures — and it is usually trivial. This is the renderer turning that into draw
+   * calls, and it is where a scene that batches badly shows up.
+   *
+   * CPU time only. What the GPU then does with those calls is not visible from here
+   * without timestamp queries, so a frame can still be slow with both of these small.
+   */
+  renderMs = 0;
+
+  /** Worst render time in the last completed window, in milliseconds. */
+  worstRenderMs = 0;
+
   /** Frames that ran long since the last {@link reset}. */
   longFrames = 0;
 
@@ -75,6 +91,7 @@ export class FrameCounter {
   private framesInWindow = 0;
   private worstInWindowMs = 0;
   private worstUpdateInWindowMs = 0;
+  private worstRenderInWindowMs = 0;
 
   /**
    * Call once per frame.
@@ -117,10 +134,12 @@ export class FrameCounter {
       this.fps = (this.framesInWindow * 1000) / elapsed;
       this.worstMs = this.worstInWindowMs;
       this.worstUpdateMs = this.worstUpdateInWindowMs;
+      this.worstRenderMs = this.worstRenderInWindowMs;
       this.windowStartMs = nowMs;
       this.framesInWindow = 0;
       this.worstInWindowMs = 0;
       this.worstUpdateInWindowMs = 0;
+      this.worstRenderInWindowMs = 0;
     }
   }
 
@@ -132,6 +151,12 @@ export class FrameCounter {
   recordUpdate(durationMs: number): void {
     this.updateMs = durationMs;
     if (durationMs > this.worstUpdateInWindowMs) this.worstUpdateInWindowMs = durationMs;
+  }
+
+  /** Records how long the renderer spent submitting the frame. */
+  recordRender(durationMs: number): void {
+    this.renderMs = durationMs;
+    if (durationMs > this.worstRenderInWindowMs) this.worstRenderInWindowMs = durationMs;
   }
 
   /** Share of the frame period spent working, as a fraction. Zero if not yet known. */

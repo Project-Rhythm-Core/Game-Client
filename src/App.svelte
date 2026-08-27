@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Application, TextureSource, type Ticker } from 'pixi.js';
+  import { Application, TextureSource, UPDATE_PRIORITY, type Ticker } from 'pixi.js';
 
   import {
     AudioClock,
@@ -245,6 +245,7 @@
     counts: {} as Record<string, number>,
     syncErrorMs: 0, roundTripMs: 0, voices: 0, droppedSamples: 0,
     fps: 0, frameMs: 0, worstMs: 0, updateMs: 0, worstUpdateMs: 0, load: 0, longFrames: 0,
+    renderMs: 0, worstRenderMs: 0,
   });
 
   onMount(async () => {
@@ -280,6 +281,13 @@
     }
 
     app.ticker.add(tick);
+
+    // Bracket the renderer's own pass. Pixi registers `render` at LOW, and our `tick` runs
+    // at NORMAL — before it — so the work timer above never saw a single draw call. Reading
+    // "0% of budget" off a number that excluded the entire render is how an LN-heavy chart
+    // could stutter while the HUD claimed there was nothing to it.
+    app.ticker.add(markRenderStart, undefined, UPDATE_PRIORITY.LOW + 1);
+    app.ticker.add(markRenderEnd, undefined, UPDATE_PRIORITY.LOW - 1);
     window.addEventListener('resize', onResize);
 
     available = await window.electronAPI.chart.listBundled();
@@ -491,6 +499,17 @@
     playing = false;
   }
 
+  /** Wall clock at the instant Pixi is about to render, set by a ticker callback. */
+  let renderStartedAt = 0;
+
+  function markRenderStart() {
+    renderStartedAt = performance.now();
+  }
+
+  function markRenderEnd() {
+    frames.recordRender(performance.now() - renderStartedAt);
+  }
+
   function tick(ticker: Ticker) {
     // The frame period comes from the presentation clock, so scheduler jitter is not
     // mistaken for a dropped frame. The work timer below uses the wall clock, because
@@ -566,6 +585,8 @@
     hud.worstMs = frames.worstMs;
     hud.updateMs = frames.updateMs;
     hud.worstUpdateMs = frames.worstUpdateMs;
+    hud.renderMs = frames.renderMs;
+    hud.worstRenderMs = frames.worstRenderMs;
     hud.load = frames.load;
     hud.longFrames = frames.longFrames;
   }
@@ -706,6 +727,11 @@
     </div>
     <div class:warn={hud.worstUpdateMs > frames.displayPeriodMs && frames.displayPeriodMs > 0}>
       worst update {hud.worstUpdateMs.toFixed(2)} ms
+    </div>
+    <!-- The renderer turning that into draw calls, which the line above never included. -->
+    <div class:warn={hud.renderMs + hud.updateMs > frames.displayPeriodMs * 0.5}>
+      render {hud.renderMs.toFixed(2)} ms
+      <span class="dim">· worst {hud.worstRenderMs.toFixed(2)}</span>
     </div>
     <div class:warn={hud.longFrames > 0}>dropped frames {hud.longFrames}</div>
   </div>
