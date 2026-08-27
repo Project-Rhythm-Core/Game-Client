@@ -39,6 +39,10 @@ const chart = {
 // what to load crosses IPC.
 const skin = {
   active: () => ipcRenderer.invoke(SKIN_CHANNEL.active),
+  /** Skins that can be chosen, source folders and converted packages alike. */
+  list: () => ipcRenderer.invoke(SKIN_CHANNEL.list),
+  /** Switch to one by folder name. Rejects if the core cannot read it. */
+  use: (folder) => ipcRenderer.invoke(SKIN_CHANNEL.use, folder),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', { audio, chart, skin });

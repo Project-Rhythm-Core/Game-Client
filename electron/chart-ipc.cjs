@@ -94,10 +94,24 @@ function registerChartHandlers() {
 
   ipcMain.handle(CHART_CHANNEL.listBundled, () => listBundled());
   ipcMain.handle(CHART_CHANNEL.import, (_event, sourcePath) => importChart(sourcePath));
-  ipcMain.handle(SKIN_CHANNEL.active, () => {
-    const s = skin.activeSkin();
-    return s ? { id: s.id, name: s.name, author: s.author, theme: skin.theme() } : null;
-  });
+  // `origin` rather than an id the renderer would have to turn into a URL itself: the
+  // main process is what decides where a skin's files are served from, so it says so.
+  const describe = (s) =>
+    s
+      ? {
+          id: s.id,
+          name: s.name,
+          author: s.author,
+          origin: `skin://${s.host}/`,
+          theme: skin.theme(),
+        }
+      : null;
+
+  ipcMain.handle(SKIN_CHANNEL.active, () => describe(skin.activeSkin()));
+  ipcMain.handle(SKIN_CHANNEL.list, () => skin.listSkins());
+  // Importing is synchronous and can take a moment on a skin with large artwork, so this
+  // is a handle rather than a send: the renderer waits and shows what it got.
+  ipcMain.handle(SKIN_CHANNEL.use, (_event, folder) => describe(skin.loadSkin(folder)));
 }
 
 module.exports = { registerChartHandlers };

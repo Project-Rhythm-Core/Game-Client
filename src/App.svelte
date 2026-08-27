@@ -3,7 +3,7 @@
   import { Application, type Ticker } from 'pixi.js';
 
   import { AudioClock, SystemClock, type PlaybackClock } from './lib/audio/index.ts';
-  import type { BundledChart, ImportedChart } from './lib/audio/types.ts';
+  import type { AvailableSkin, BundledChart, ImportedChart } from './lib/audio/types.ts';
   import { PlayableChart } from './lib/chart/playable-chart.ts';
   import {
     ColumnInput,
@@ -115,6 +115,11 @@
 
   let available = $state<BundledChart[]>([]);
   let selected = $state('');
+
+  let skins = $state<AvailableSkin[]>([]);
+  let selectedSkin = $state('');
+  /** True while a skin is being imported, which is slow enough to be worth showing. */
+  let switchingSkin = $state(false);
   let status = $state('starting up');
   let error = $state<string | null>(null);
   let ready = $state(false);
@@ -177,6 +182,8 @@
     try {
       skinTheme = await SkinTheme.load();
       playfield.setSkin(skinTheme);
+      skins = await window.electronAPI.skin.list();
+      selectedSkin = skins.find((s) => s.id === skinTheme?.id)?.folder ?? '';
     } catch (e) {
       console.warn('could not load the skin:', e);
     }
@@ -199,6 +206,46 @@
 
   function onResize() {
     if (playable && playfield) playfield.drawLanes(playable);
+  }
+
+  /**
+   * Switches to another skin without restarting.
+   *
+   * The point of this screen is comparing skins, so a failure has to be visible and
+   * survivable: a skin the core cannot read leaves the playfield on flat colour and says
+   * why, rather than taking the session down.
+   */
+  async function useSkin() {
+    if (!selectedSkin) return;
+
+    switchingSkin = true;
+    error = null;
+
+    const previous = skinTheme;
+
+    try {
+      await window.electronAPI.skin.use(selectedSkin);
+      skinTheme = await SkinTheme.load();
+      playfield?.setSkin(skinTheme);
+
+      // Only once the replacement is in place. Releasing first would leave the playfield
+      // pointing at destroyed textures for as long as the new skin took to load.
+      if (previous && previous.id !== skinTheme?.id) void previous.destroy();
+
+      // Lane widths and the hit position come from the skin, so the stage has to be
+      // measured again — the new skin almost certainly disagrees about both.
+      if (playable) playfield?.drawLanes(playable);
+
+      status = skinTheme ? `skin: ${skinTheme.name}` : 'that skin has no theme — flat colour';
+    } catch (e) {
+      skinTheme = null;
+      playfield?.setSkin(null);
+      if (playable) playfield?.drawLanes(playable);
+      error = `skin '${selectedSkin}': ${e instanceof Error ? e.message : String(e)}`;
+      status = 'skin failed';
+    } finally {
+      switchingSkin = false;
+    }
   }
 
   async function load() {
@@ -396,6 +443,15 @@
   <button onclick={load} disabled={!selected}>Load</button>
   <button onclick={start} disabled={!ready}>{playing ? 'Restart' : 'Play'}</button>
 
+  <select bind:value={selectedSkin} onchange={useSkin} disabled={switchingSkin || !skins.length}
+    title="Skin to draw with. Source skins are re-imported on selection, so edits show up.">
+    {#each skins as skin (skin.id)}
+      <option value={skin.folder}>
+        {skin.folder}{skin.converted ? ' ·pkg' : ''}{skin.readable ? '' : ' ·?'}
+      </option>
+    {/each}
+  </select>
+
   <label>
     <input type="checkbox" bind:checked={constantVelocity} onchange={rebuild} />
     no SV
@@ -429,7 +485,7 @@
   <span class="keys">
     {imported ? defaultLayout(imported.chart.columns.length).map((k) => k.replace(/^Key/, '')).join(' ') : ''}
   </span>
-  <span class="status">{skinTheme ? skinTheme.name + " · " : ""}{status}</span>
+  <span class="status">{switchingSkin ? 'importing skin…' : status}</span>
 </div>
 
 {#if playable}

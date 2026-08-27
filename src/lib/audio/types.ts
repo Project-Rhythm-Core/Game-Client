@@ -128,6 +128,8 @@ export interface ActiveSkin {
   id: string;
   name: string;
   author: string;
+  /** Where this skin's files are served from, e.g. `skin://dpjam/`. Use it verbatim. */
+  origin: string;
   /**
    * The skin's visual theme, already parsed; `null` when it provides only sounds.
    *
@@ -137,8 +139,22 @@ export interface ActiveSkin {
   theme: unknown | null;
 }
 
+/** A skin that can be chosen, whether or not it has been imported yet. */
+export interface AvailableSkin {
+  id: string;
+  /** Folder name, which is what to go and edit when something draws wrong. */
+  folder: string;
+  /** Already in the game's own format, as opposed to a source skin to import. */
+  converted: boolean;
+  /** Whether the core recognises it. An unreadable one is still listed, so it can fail visibly. */
+  readable: boolean;
+}
+
 export interface SkinBridge {
   active(): Promise<ActiveSkin | null>;
+  list(): Promise<AvailableSkin[]>;
+  /** Switch by folder name. Rejects if the core cannot read that folder. */
+  use(folder: string): Promise<ActiveSkin | null>;
 }
 
 declare global {

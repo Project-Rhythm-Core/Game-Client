@@ -50,9 +50,36 @@ const SKIN_CACHE = path.join(os.tmpdir(), 'project-rhythm-core', 'skins');
  */
 const DEFAULT_SKIN_FOLDER = '『 - Nabos Skin Mix - 』';
 
-/** Canonical sound name to absolute path. Empty until a skin is loaded. */
+/** Canonical sound name to absolute path, for the active skin. Empty until one loads. */
 let sounds = {};
 let active = null;
+
+/**
+ * Every skin activated this session, by id.
+ *
+ * Switching skins does not evict the old one, and that is the point. The renderer loads
+ * textures through `skin://<id>/…`, and its asset loader caches by URL — so an id has to
+ * keep meaning the same files for as long as any texture fetched under it might still be
+ * around. Serving only the current skin would hand the new one's bytes out under the old
+ * one's URLs the moment anything asked again.
+ */
+const loaded = new Map();
+
+/**
+ * The `skin://` host a skin is served under.
+ *
+ * Usually just its id. The exception matters: the scheme is registered as `standard`, so
+ * Chromium parses its host by the special-scheme rules and applies IDNA to it. An id that
+ * is not plain ASCII — a skin folder named entirely in Japanese slugs to one, and those
+ * are not rare — would reach here punycoded and match nothing. Encoding those keeps the
+ * host inside the character set the URL parser leaves alone.
+ *
+ * Decided here and handed to the renderer rather than derived at both ends, for the same
+ * reason the id itself is: two spellings of it means textures that quietly 404.
+ */
+function hostFor(id) {
+  return /^[a-z0-9-]+$/.test(id) ? id : `x${Buffer.from(id, 'utf8').toString('hex')}`;
+}
 
 /**
  * Declares the scheme's privileges. Must run before the app is ready.
@@ -86,18 +113,15 @@ function registerSkinScheme() {
  */
 function serveSkinFiles() {
   protocol.handle(SKIN_SCHEME, async (request) => {
-    if (!active) return new Response('no skin loaded', { status: 404 });
-
     const url = new URL(request.url);
 
-    // One host for now, and it means "whichever skin is active". Naming it rather than
-    // ignoring it leaves room for `skin://<id>/…` once more than one can be loaded.
-    if (url.hostname !== 'active') {
-      return new Response('unknown skin', { status: 404 });
-    }
+    // The host is the skin's id. `active` is still accepted as an alias for whichever is
+    // current, which is what a caller wants before it knows the id.
+    const skin = url.hostname === 'active' ? active : loaded.get(url.hostname);
+    if (!skin) return new Response('unknown skin', { status: 404 });
 
     const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '');
-    const root = path.resolve(active.dir);
+    const root = path.resolve(skin.dir);
     const file = path.resolve(root, relative);
 
     if (file !== root && !file.startsWith(root + path.sep)) {
@@ -126,7 +150,9 @@ function serveSkinFiles() {
  * leaves charts silent rather than refusing to start.
  */
 function loadSkin(folderName = DEFAULT_SKIN_FOLDER) {
-  const id = folderName.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  // The id is asked for rather than derived here. It is the host of the `skin://` URL the
+  // renderer fetches through, so a second spelling of it means textures that 404.
+  const id = core.skinId(folderName);
 
   // A package already in the game's format is used as-is. Importing is only for source
   // skins the player drops in, and it is what produced these in the first place.
@@ -142,10 +168,66 @@ function loadSkin(folderName = DEFAULT_SKIN_FOLDER) {
     return null;
   }
 
+  // Re-imported on every selection rather than cached by folder. This is the screen for
+  // finding out what a skin gets wrong, so editing one and picking it again has to show
+  // the edit; a cache would quietly serve the previous attempt.
   const output = path.join(SKIN_CACHE, folderName);
   const summary = core.importSkin(source, output);
 
   return activate(output, { ...summary, imported: true });
+}
+
+/**
+ * Every skin that can be chosen: packages already in the game's format, and source skins
+ * to import on demand.
+ *
+ * Listed by folder rather than by the name inside the skin, because this is a testing
+ * screen: the folder is what you go and edit when something draws wrong. A skin the core
+ * does not recognise is still listed, with `readable: false`, so it can be selected and
+ * the failure seen rather than the skin silently missing from the list.
+ */
+function listSkins() {
+  const found = new Map();
+
+  const scan = (root, converted) => {
+    if (!fs.existsSync(root)) return;
+
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+
+      const dir = path.join(root, entry.name);
+      const readable = converted
+        ? fs.existsSync(path.join(dir, 'skin.yaml'))
+        : core.skinFormats().length > 0 && recognised(dir);
+
+      found.set(core.skinId(entry.name), {
+        id: core.skinId(entry.name),
+        folder: entry.name,
+        converted,
+        readable,
+      });
+    }
+  };
+
+  // Converted packages are scanned last so they win: they are what `loadSkin` prefers.
+  scan(BUNDLED_SKINS, false);
+  scan(CONVERTED_SKINS, true);
+
+  return [...found.values()].sort((a, b) => a.folder.localeCompare(b.folder));
+}
+
+/**
+ * Whether any importer claims this folder.
+ *
+ * Asked of the core rather than guessed at here — recognising a skin is the importer's
+ * job, and it is the only thing that knows what its own format looks like.
+ */
+function recognised(dir) {
+  try {
+    return core.skinImporterFor(dir) !== null;
+  } catch {
+    return false;
+  }
 }
 
 function activate(dir, info) {
@@ -161,9 +243,12 @@ function activate(dir, info) {
     ...info,
     dir,
     format,
+    host: hostFor(info.id),
     soundCount: Object.keys(sounds).length,
     theme: theme ? JSON.parse(theme) : null,
   };
+
+  loaded.set(active.host, active);
 
   return active;
 }
@@ -200,6 +285,7 @@ function resolveSample(mediaDir, file) {
 
 module.exports = {
   loadSkin,
+  listSkins,
   activeSkin,
   theme,
   resolveSample,

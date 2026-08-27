@@ -425,7 +425,7 @@ fn write_yaml<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), String>
 }
 
 /// Lowercase, alphanumerics and dashes. Used as the package's directory name and id.
-fn slug(text: &str) -> String {
+pub fn slug(text: &str) -> String {
     let mut out = String::new();
     let mut pending_dash = false;
 

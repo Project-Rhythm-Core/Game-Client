@@ -199,6 +199,25 @@ export declare function setOffsetMs(offsetMs: number): void
 /** Source skin formats this build can import, by the name their theme is stored under. */
 export declare function skinFormats(): Array<string>
 
+/**
+ * The identifier a skin folder is stored and served under.
+ *
+ * Exposed rather than reimplemented by callers: the id is the host of the `skin://` URL
+ * the renderer loads textures through, so a caller that spelled it even slightly
+ * differently would ask for a skin that does not exist. One implementation, and it is
+ * the one that names the folder in the first place.
+ */
+export declare function skinId(name: string): string
+
+/**
+ * The format of the skin in `dir`, or `null` when no importer recognises it.
+ *
+ * A source skin does not announce what it is, so recognising one is the importer's own
+ * job. Callers listing a folder of skins ask this rather than testing for a `skin.ini`
+ * themselves, which would be a second, quietly diverging idea of what a skin looks like.
+ */
+export declare function skinImporterFor(dir: string): string | null
+
 /** What importing a skin produced. */
 export interface SkinSummary {
   id: string

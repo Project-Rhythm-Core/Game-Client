@@ -33,6 +33,10 @@ const CHART_CHANNEL = Object.freeze({
 const SKIN_CHANNEL = Object.freeze({
   /** The active skin's identity and its visual theme. */
   active: 'skin:active',
+  /** Every skin that can be chosen. */
+  list: 'skin:list',
+  /** Switch to a skin by folder name, and return what was loaded. */
+  use: 'skin:use',
 });
 
 module.exports = { AUDIO_CHANNEL, CHART_CHANNEL, SKIN_CHANNEL };

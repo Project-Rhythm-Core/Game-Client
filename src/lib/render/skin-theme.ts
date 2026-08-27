@@ -8,9 +8,6 @@ import { Assets, Texture } from 'pixi.js';
  * it will serve.
  */
 
-/** Base of every skin asset URL. One host for now, meaning "whichever skin is active". */
-const SKIN_ORIGIN = 'skin://active/';
-
 /**
  * Height every measurement in a layout is expressed against.
  *
@@ -119,6 +116,7 @@ interface RawTheme {
 }
 
 export class SkinTheme {
+  readonly id: string;
   readonly name: string;
   /** The combo font, when the skin ships a full set of ten digits. */
   readonly comboFont: DigitFont | null;
@@ -126,13 +124,20 @@ export class SkinTheme {
   readonly judgements: ReadonlyMap<string, Texture>;
   private readonly layouts = new Map<number, Layout>();
 
+  /** Every URL loaded for this skin, so they can be released when it is swapped out. */
+  private readonly urls: readonly string[];
+
   private constructor(
+    id: string,
     name: string,
     layouts: Map<number, Layout>,
     comboFont: DigitFont | null,
     judgements: Map<string, Texture>,
+    urls: readonly string[],
   ) {
+    this.id = id;
     this.name = name;
+    this.urls = urls;
     this.layouts = layouts;
     this.comboFont = comboFont;
     this.judgements = judgements;
@@ -149,6 +154,11 @@ export class SkinTheme {
     if (!active?.theme) return null;
 
     const theme = active.theme as unknown as RawTheme;
+    // Taken from the skin rather than built here. It names one skin rather than "whichever
+    // is active", which is what keeps Pixi's URL-keyed asset cache honest when the player
+    // switches: a fixed host would hand back the previous skin's textures under the new
+    // skin's names.
+    const origin = active.origin;
 
     // Every distinct texture is loaded once, however many columns reference it.
     const paths = new Set<string>();
@@ -174,7 +184,7 @@ export class SkinTheme {
     await Promise.all(
       [...paths].map(async (path) => {
         try {
-          textures.set(path, await Assets.load<Texture>(SKIN_ORIGIN + path));
+          textures.set(path, await Assets.load<Texture>(origin + path));
         } catch {
           // A skin naming a file it does not ship is the loader's problem, not a reason
           // to refuse the whole skin: that column simply falls back to flat colour.
@@ -222,7 +232,27 @@ export class SkinTheme {
       if (texture) judgements.set(name, texture);
     }
 
-    return new SkinTheme(active.name, layouts, comboFont, judgements);
+    return new SkinTheme(
+      active.id,
+      active.name,
+      layouts,
+      comboFont,
+      judgements,
+      [...paths].map((path) => origin + path),
+    );
+  }
+
+  /**
+   * Releases this skin's textures.
+   *
+   * Worth doing when swapping skins rather than leaving it to the cache: a session spent
+   * comparing a folder full of skins would otherwise accumulate every texture of every
+   * one of them, and skin artwork is not small.
+   */
+  async destroy(): Promise<void> {
+    await Promise.all(
+      this.urls.map((url) => Assets.unload(url).catch(() => {})),
+    );
   }
 
   /** The stage for a key count, or `null` when the skin does not cover it. */
