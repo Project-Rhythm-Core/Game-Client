@@ -1,0 +1,82 @@
+{
+    "general": {
+        "audio_filename": "audio.mp3",
+        "previewTime": 39236,
+        "countdown": 0,
+        "sample_set": "Normal"
+    },
+
+    "metadata": {
+        "game_source": "osu",
+        "title": "polyriddim",
+        "title_unicode": "polyriddim",
+        "artist": "phonon",
+        "artist_unicode": "phonon",
+        "creator": "HowToPlayLN",
+        "version": "nsv vip",
+        "source": "",
+        "tags": [
+            "sv",
+            "lolinote",
+            "HTPLN",
+            "Electronic",
+            "Instrumental",
+            "Dubstep",
+            "Odio",
+            "Records",
+            "ODI074",
+            "Cameron",
+            "Marshall"
+        ],
+        "beatmap_id": 2443502,
+        "beatmap_set_id": 1182702
+    },
+
+    "difficulty": {
+        "hp_drain_rate": 8,
+        "key_count": 4,
+        "overall_difficulty": 7
+    },
+
+    "events": {
+        "background": {
+            "start_time_ms": 0,
+            "filename": "Screenshot_20201225_222553.jpg",
+            "x_offset": 0,
+            "y_offset": 0
+        },
+        "breaks": [
+            {
+              "start_time_ms": 219679,
+              "end_time_ms": 224279
+            }
+        ]
+    },
+
+    "timing_points": {
+        "bpm_changes": [
+            { "time_ms": 53.304347826087, "bpm": 140.0 },
+            { "time_ms": 13767, "bpm": 122.5 },
+            { "time_ms": 82338, "bpm": 140.0 },
+            { "time_ms": 123480, "bpm": 122.5 },
+            { "time_ms": 192051, "bpm": 140.0 }
+        ],
+        "scroll_events": [
+            { "time_ms": 53.304347826087, "multiplier": 0.88 },
+            { "time_ms": 82338, "multiplier": 0.88 },
+            { "time_ms": 192051, "multiplier": 0.88 }
+        ]
+    },
+
+    "notes": [
+        { "column": 3, "time_ms": 53, "type": "tap" },
+        { "column": 0, "time_ms": 53, "type": "tap" },
+        { "column": 2, "time_ms": 1767, "type": "tap" },
+        { "column": 0, "time_ms": 1767, "type": "tap" },
+        { "column": 3, "time_ms": 3481, "type": "tap" },
+        { "column": 2, "time_ms": 4000, "type": "hold", "end_time_ms": 4500 },
+        { "column": 0, "time_ms": 5000, "type": "hold", "end_time_ms": 5500 },
+        { "column": 3, "time_ms": 6000, "type": "hold", "end_time_ms": 6500 }
+    ]
+
+}
