@@ -12,7 +12,7 @@ extends Node
 	set(value):
 		if player:
 			player.stream_paused = value
-			
+
 @export_group("Nodes")
 ## The song player.
 @export var player: AudioStreamPlayer
@@ -55,7 +55,7 @@ func _ready() -> void:
 
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if not _is_playing:
 		return
 

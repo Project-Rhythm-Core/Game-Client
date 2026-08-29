@@ -4,6 +4,7 @@ extends Node2D
 @export var conductor: Conductor
 @export var x_offset: float = 0.0
 @export var beat: float = 0.0
+@export var judgment_line: Node2D
 
 var _speed: float = 400.0
 var _movement_paused: bool = false
@@ -19,7 +20,7 @@ func _process(_delta: float) -> void:
 	_update_position()
 
 func _update_position() -> void:
-	position.y = _speed * _song_time_delta
+	position.y = judgment_line.position.y + (_speed * _song_time_delta)
 	position.x = x_offset
 
 func hit() -> void:
