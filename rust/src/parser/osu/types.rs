@@ -1,4 +1,4 @@
-use rosu_map::section::{events::BreakPeriod, hit_objects::hit_samples::{HitSampleInfo, SampleBank}};
+use rosu_map::section::{events::BreakPeriod, hit_objects::hit_samples::{SampleBank}};
 
 pub enum GameSource {
     Osu,

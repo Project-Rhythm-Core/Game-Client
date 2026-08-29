@@ -5,7 +5,8 @@ extends Node
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
 	var rust_node := OsuParser.new()
-	print(rust_node.parse_map())
+	var map := rust_node.parse_map()
+	print(map)
 	conductor.play()
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
