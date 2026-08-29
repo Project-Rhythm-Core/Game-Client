@@ -1,5 +1,6 @@
 use godot::prelude::*;
 
+pub mod parser;
 struct MyExtension;
 
 #[gdextension]

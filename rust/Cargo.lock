@@ -138,7 +138,14 @@ name = "rhythm_project"
 version = "0.1.0"
 dependencies = [
  "godot",
+ "rosu-map",
 ]
+
+[[package]]
+name = "rosu-map"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b92ea634d8b3eaa4d7fba7bd12045dda1a50ce81401c96af0d9c851b0737544"
 
 [[package]]
 name = "unicode-ident"
