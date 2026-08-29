@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Project-Rhythm-Godot"
-run/main_scene="uid://0ivtusg6yk23"
+run/main_scene="uid://c28xydgrskmg8"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 

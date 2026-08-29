@@ -1,0 +1,24 @@
+[gd_scene format=3 uid="uid://c28xydgrskmg8"]
+
+[ext_resource type="Script" uid="uid://b5pom8nrumhd5" path="res://scripts/conductor.gd" id="1_33cqm"]
+[ext_resource type="AudioStream" uid="uid://8v462cfa06ha" path="res://assets/audio.mp3" id="1_xwcet"]
+[ext_resource type="Script" uid="uid://clrovn80cht3g" path="res://scripts/note_manager.gd" id="2_xwcet"]
+[ext_resource type="Texture2D" uid="uid://cdbdehyo46r1s" path="res://objects/note/note.png" id="3_p1ry8"]
+
+[node name="Game" type="Node2D" unique_id=1185290124]
+
+[node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=649715901]
+stream = ExtResource("1_xwcet")
+
+[node name="Conductor" type="Node" parent="." unique_id=251113417 node_paths=PackedStringArray("player")]
+script = ExtResource("1_33cqm")
+player = NodePath("../AudioStreamPlayer")
+metadata/_custom_type_script = "uid://b5pom8nrumhd5"
+
+[node name="NoteManager" type="Node2D" parent="." unique_id=1616388888 node_paths=PackedStringArray("conductor")]
+script = ExtResource("2_xwcet")
+conductor = NodePath("../Conductor")
+
+[node name="JudgmentLine" type="Sprite2D" parent="." unique_id=739576659]
+position = Vector2(300, 500)
+texture = ExtResource("3_p1ry8")
