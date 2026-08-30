@@ -12,7 +12,8 @@ const HIT_MARGIN_MISS := 0.300
 
 var _notes: Array[Note] = []
 var _notes_by_column: Array = []
-var _key_count: int = 4
+var _key_count: int
+var _bindings: Array
 
 func _ready() -> void:
 	var parser := OsuParser.new()
@@ -22,13 +23,16 @@ func _ready() -> void:
 		print("Error al parsear el chart: ", chart["error"])
 		return
 		
-	var key_count: int = chart["key_count"]
-	var stage_start: float = (get_viewport_rect().size.x - (key_count * COLUMN_WIDTH)) / 2.0
+	_key_count = chart["key_count"]
+	var stage_start: float = (get_viewport_rect().size.x - (_key_count * COLUMN_WIDTH)) / 2.0
 	
 	_notes_by_column.resize(_key_count)
 	for i in range(_key_count):
 		_notes_by_column[i] = []
-		
+	
+	_bindings = GlobalSettings.get_key_bindings(_key_count)
+	print(_bindings)
+	
 	var notes_data: Array = chart["notes"]
 	
 	for note_data in notes_data:
@@ -63,8 +67,11 @@ func _process(_delta: float) -> void:
 		note.update_beat(curr_beat)
 		
 	_miss_old_notes(curr_beat)
-	_handle_input(curr_beat)
 
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		_handle_key_input(event.physical_keycode)
+		
 func _get_note_delta(note: Note, curr_beat: float) -> float:
 	return (curr_beat - note.beat) * conductor.get_beat_duration()
 
@@ -76,40 +83,38 @@ func _miss_old_notes(curr_beat: float) -> void:
 			var delta := _get_note_delta(note, curr_beat)
 			
 			if delta > HIT_MARGIN_GOOD:
-				##print("Miss! (%.1f ms)" % (delta * 1000))
+				print("Miss! (%.1f ms)" % (delta * 1000))
 				note.miss()
 				queue.remove_at(0)
 				_notes.erase(note)
 			else:
 				break
-func _handle_input(curr_beat: float) -> void:
-	for column in range(_key_count):
-		var action_name := "key_%d" % column
-		if not Input.is_action_just_pressed(action_name):
-			continue
-		
-		var queue: Array = _notes_by_column[column]
-		if queue.is_empty():
-			continue
-		
-		var note: Note = queue[0]
-		var delta := _get_note_delta(note, curr_beat)
-		
-		if delta < -HIT_MARGIN_MISS:
-			continue
-		
-		if abs(delta) <= HIT_MARGIN_PERFECT:
-			print("Perfect! (%.1f ms)" % (delta * 1000))
-			note.hit()
-			queue.remove_at(0)
-			_notes.erase(note)
-		elif abs(delta) <= HIT_MARGIN_GOOD:
-			print("Good (%.1f ms)" % (delta * 1000))
-			note.hit()
-			queue.remove_at(0)
-			_notes.erase(note)
-		elif abs(delta) <= HIT_MARGIN_MISS:
-			print("Miss (%.1f ms)" % (delta * 1000))
-			note.miss()
-			queue.remove_at(0)
-			_notes.erase(note)
+func _handle_key_input(physical_keycode: int) -> void:
+	var column := _bindings.find(physical_keycode)
+	if column == -1:
+		return
+	
+	var curr_beat := conductor.get_current_beat()
+	var queue: Array = _notes_by_column[column]
+	if queue.is_empty():
+		return
+	
+	var note: Note = queue[0]
+	var delta := _get_note_delta(note, curr_beat)
+	
+	if delta < -HIT_MARGIN_MISS:
+		return
+	
+	if abs(delta) <= HIT_MARGIN_PERFECT:
+		print("Perfect! (%.1f ms)" % (delta * 1000))
+		note.hit()
+	elif abs(delta) <= HIT_MARGIN_GOOD:
+		print("Good! (%.1f ms)" % (delta * 1000))
+		note.hit()
+	elif abs(delta) <= HIT_MARGIN_MISS:
+		print("Miss (%.1f ms)" % (delta * 1000))
+		note.miss()
+	else:
+		return
+	queue.remove_at(0)
+	_notes.erase(note)
