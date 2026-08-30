@@ -19,7 +19,7 @@ impl OsuParser {
     #[func]
     fn parse_map(&self) -> Dictionary<Variant,Variant> {
 
-        let path = "/home/manolo/github/Project-Rhythm-Core/Game-Client/rust/resources/polyriddim/phonon - polyriddim (HowToPlayLN) [nsv].osu";
+        let path = "/home/manolo/github/project-rythm-core/Game-Client/rust/resources/2177636 IOSYS TRAX with Chiyoko - DX Choyasei! Survival Zundoko Chan/IOSYS TRAX with Chiyoko - DX Choyasei! Survival Zundoko Chan (ERA arccat) [mint's DX Temple Run!].osu";
         let map = match rosu_map::from_path::<Beatmap>(path) {
             Ok( m) => m,
             Err(e) => {

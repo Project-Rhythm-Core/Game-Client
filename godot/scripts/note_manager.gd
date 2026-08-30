@@ -49,6 +49,7 @@ func _ready() -> void:
 		_notes.append(note)
 		_notes_by_column[column].append(note)
 	
+	await get_tree().create_timer(2.0).timeout
 	conductor.play()
 	print("Notas cargadas: ", _notes.size())
 
@@ -75,7 +76,7 @@ func _miss_old_notes(curr_beat: float) -> void:
 			var delta := _get_note_delta(note, curr_beat)
 			
 			if delta > HIT_MARGIN_GOOD:
-				print("Miss! (%.1f ms)" % (delta * 1000))
+				##print("Miss! (%.1f ms)" % (delta * 1000))
 				note.miss()
 				queue.remove_at(0)
 				_notes.erase(note)
