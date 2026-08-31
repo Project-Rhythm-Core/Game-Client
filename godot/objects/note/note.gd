@@ -6,7 +6,7 @@ extends Node2D
 @export var beat: float = 0.0
 @export var judgment_line: Node2D
 
-var _speed: float = 600.0
+var _speed: float = 1000.0
 var _movement_paused: bool = false
 var _song_time_delta: float = 0.0
 

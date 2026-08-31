@@ -18,7 +18,7 @@ var _bindings: Array
 
 func _ready() -> void:
 	var parser := OsuParser.new()
-	var chart := parser.parse_map()
+	var chart := parser.parse_map(GameSession.current_chart_path)
 	
 	if chart.has("error"):
 		print("Error al parsear el chart: ", chart["error"])

@@ -14,10 +14,11 @@ script = ExtResource("2_lfrn8")
 player = NodePath("../AudioStreamPlayer")
 metadata/_custom_type_script = "uid://b5pom8nrumhd5"
 
-[node name="NoteManager" type="Node2D" parent="." unique_id=1616388888 node_paths=PackedStringArray("conductor", "judgment_line")]
+[node name="NoteManager" type="Node2D" parent="." unique_id=1616388888 node_paths=PackedStringArray("conductor", "judgment_line", "audio_player")]
 script = ExtResource("3_bdhmt")
 conductor = NodePath("../Conductor")
 judgment_line = NodePath("../JudgmentLine")
+audio_player = NodePath("../AudioStreamPlayer")
 
 [node name="JudgmentLine" type="Sprite2D" parent="." unique_id=739576659]
 position = Vector2(300, 500)

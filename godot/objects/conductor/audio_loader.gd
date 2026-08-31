@@ -3,7 +3,7 @@ class_name AudioLoader
 
 static func load_audio(chart_path: String, chart: Dictionary, player: AudioStreamPlayer) -> void:
 	var chart_dir := chart_path.get_base_dir()
-	var audio_filename: String = chart["general"]["audio_filename"]
+	var audio_filename: String = chart["audio_filename"]
 	var audio_path := chart_dir.path_join(audio_filename)
 
 	var audio_stream: AudioStream

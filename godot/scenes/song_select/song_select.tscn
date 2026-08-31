@@ -1,3 +1,20 @@
 [gd_scene format=3 uid="uid://dv1d2540i2we7"]
 
-[node name="SongSelect" type="Node2D" unique_id=162646330]
+[ext_resource type="Script" uid="uid://dicw0oclj6m5a" path="res://scenes/song_select/song_select.gd" id="1_pgp6x"]
+
+[node name="SongSelect" type="Control" unique_id=689056915]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_pgp6x")
+
+[node name="ItemList" type="ItemList" parent="." unique_id=300561122]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
