@@ -9,6 +9,7 @@ const HIT_MARGIN_MISS := 0.300
 
 @export var conductor: Conductor
 @export var judgment_line: Node2D
+@export var audio_player: AudioStreamPlayer
 
 var _notes: Array[Note] = []
 var _notes_by_column: Array = []
@@ -22,7 +23,9 @@ func _ready() -> void:
 	if chart.has("error"):
 		print("Error al parsear el chart: ", chart["error"])
 		return
-		
+	
+	AudioLoader.load_audio(GameSession.current_chart_path, chart, audio_player)
+	
 	_key_count = chart["key_count"]
 	var stage_start: float = (get_viewport_rect().size.x - (_key_count * COLUMN_WIDTH)) / 2.0
 	
