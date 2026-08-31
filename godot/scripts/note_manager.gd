@@ -30,7 +30,8 @@ func _ready() -> void:
 	for i in range(_key_count):
 		_notes_by_column[i] = []
 	
-	_bindings = GlobalSettings.get_key_bindings(_key_count)
+	var variant: String = GameSession.current_variant
+	_bindings = GlobalSettings.get_key_bindings(_key_count, variant)
 	print(_bindings)
 	
 	var notes_data: Array = chart["notes"]

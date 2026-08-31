@@ -52,4 +52,16 @@ func get_variants_for(key_count: int) -> Array:
 	if raw is Dictionary:
 		return raw.keys()
 	return []
-	
+
+func get_preferred_variant(key_count: int) -> String:
+	var key_count_str := str(key_count)
+	return settings.get("input", {}).get("preferred_variant", {}).get(key_count_str, "")
+
+func set_preferred_variant(key_count: int, variant: String) -> void:
+	var key_count_str := str(key_count)
+	if not settings.has("input"):
+		settings["input"] = {}
+	if not settings["input"].has("preferred_variant"):
+		settings["input"]["preferred_variant"] = {}
+	settings["input"]["preferred_variant"][key_count_str] = variant
+	save_settings()
