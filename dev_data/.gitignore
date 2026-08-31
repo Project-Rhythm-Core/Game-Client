@@ -1,0 +1,7 @@
+Songs/**/*
+!Songs/**/
+!Songs/**/.gitkeep
+
+Skins/**/*
+!Skins/**/
+!Skins/**/.gitkeep
