@@ -17,9 +17,9 @@ impl INode for OsuParser {
 #[godot_api]
 impl OsuParser {
     #[func]
-    fn parse_map(&self) -> Dictionary<Variant,Variant> {
+    fn parse_map(&self, path: GString) -> Dictionary<Variant,Variant> {
 
-        let path = "/home/manolo/github/Project-Rhythm-Core/Game-Client/rust/resources/2177636 IOSYS TRAX with Chiyoko - DX Choyasei! Survival Zundoko Chan/IOSYS TRAX with Chiyoko - DX Choyasei! Survival Zundoko Chan (ERA arccat) [mint's DX Temple Run!].osu";
+        let path = path.to_string();
         let map = match rosu_map::from_path::<Beatmap>(path) {
             Ok( m) => m,
             Err(e) => {
