@@ -1,11 +1,16 @@
 [gd_scene format=3 uid="uid://c28xydgrskmg8"]
 
+[ext_resource type="Script" uid="uid://bg8f28lvhw15o" path="res://scenes/game/level_setup.gd" id="1_lfrn8"]
 [ext_resource type="Script" uid="uid://b5pom8nrumhd5" path="res://objects/conductor/conductor.gd" id="2_lfrn8"]
 [ext_resource type="Script" uid="uid://clrovn80cht3g" path="res://scripts/note_manager.gd" id="3_bdhmt"]
 [ext_resource type="Texture2D" uid="uid://cdbdehyo46r1s" path="res://objects/note/note.png" id="4_87uf6"]
 [ext_resource type="Script" uid="uid://bijp3avr8snle" path="res://scripts/pause_handler.gd" id="5_2a8rs"]
 
-[node name="Game" type="Node2D" unique_id=1185290124]
+[node name="Game" type="Node2D" unique_id=1185290124 node_paths=PackedStringArray("conductor", "note_manager", "audio_player")]
+script = ExtResource("1_lfrn8")
+conductor = NodePath("Conductor")
+note_manager = NodePath("NoteManager")
+audio_player = NodePath("AudioStreamPlayer")
 
 [node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=649715901]
 
@@ -14,11 +19,9 @@ script = ExtResource("2_lfrn8")
 player = NodePath("../AudioStreamPlayer")
 metadata/_custom_type_script = "uid://b5pom8nrumhd5"
 
-[node name="NoteManager" type="Node2D" parent="." unique_id=1616388888 node_paths=PackedStringArray("conductor", "judgment_line", "audio_player")]
+[node name="NoteManager" type="Node2D" parent="." unique_id=1616388888 node_paths=PackedStringArray("judgment_line")]
 script = ExtResource("3_bdhmt")
-conductor = NodePath("../Conductor")
 judgment_line = NodePath("../JudgmentLine")
-audio_player = NodePath("../AudioStreamPlayer")
 
 [node name="JudgmentLine" type="Sprite2D" parent="." unique_id=739576659]
 position = Vector2(300, 500)
