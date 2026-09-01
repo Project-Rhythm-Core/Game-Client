@@ -1,0 +1,23 @@
+{
+	"column_start": 130,
+	"hit_position": 384,
+	"upscroll": false,
+	"judgement_line": true,
+	"score_position": 280,
+	"combo_position": 192,
+	"style": {
+		"default": {
+			"column_width": [90],
+			"column_line_width": [0],
+			"tap_image": [
+				"notes/white"
+			],
+			"ln_image": [
+				"notes/whiteL"
+			],
+			"ln_head_image": [
+				"notes/whiteH"
+			]
+		}
+	}
+}
