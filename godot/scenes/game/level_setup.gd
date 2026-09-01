@@ -31,6 +31,7 @@ func _ready() -> void:
 		conductor
 		)
 	
+	await get_tree().create_timer(2.0).timeout
 	conductor.play()
 
 func _load_level() -> void:

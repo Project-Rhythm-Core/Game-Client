@@ -1,0 +1,347 @@
+{
+	"general": {
+		"name": "Default",
+		"author": "Manolo"
+	},
+	"keys": {
+		"1": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [56],
+					"column_line_width": [0],
+					"tap_image": [
+						"tap/mania_note_white"
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH"
+					]
+				}
+			}
+		},
+		"2": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [56, 56],
+					"column_line_width": [0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH"
+					]
+				}
+			}
+		},
+		"3": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [56,56,56],
+					"column_line_width": [0,0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_yellow",
+						"tap/mania_note_white"
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_yellowL",
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_yellowH",
+						"head/mania_note_whiteH"
+					]
+				}
+			}
+		},
+		"4": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [56, 53.5, 53.5, 56],
+					"column_line_width": [0,0,0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH"
+					]
+				}
+			}
+		},
+		"5": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [53.5, 53.5, 56, 53.5, 53.5],
+					"column_line_width": [0,0,0,0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_yellow",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_yellowL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_yellowH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH"
+					]
+				}
+			}
+		},
+		"6": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [56,56,56,56,56,56],
+					"column_line_width": [0,0,0,0,0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH"
+					]
+				}
+			}
+		},
+		"7": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [53.5,53.5,53.5,56,53.5,53.5,53.5],
+					"column_line_width": [0,0,0,0,0,0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_yellow",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_yellowL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_yellowH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH"
+					]
+				}
+			}
+		},
+		"8": {
+			"column_start": 130,
+			"hit_position": 384,
+			"up_scroll": false,
+			"judgement_line": true,
+			"score_position": 280,
+			"combo_position": 192,
+			"layout": {
+				"default": {
+					"column_width": [70,56,56,56, 56,56,56,70],
+					"column_line_width": [0,1,0,0,0,0,0,1,0],
+					"tap_image": [
+						"tap/mania_note_green",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_green"
+					],
+					"ln_image": [
+						"ln/mania_note_greenL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_greenL"
+					],
+					"ln_head_image": [
+						"head/mania_note_greenH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_greenH"
+					]
+				},
+				"thumbs": {
+					"column_width": [56,56,56,70, 70,56,56,56],
+					"column_line_width": [0,0,0,0,1,0,0,0,0],
+					"tap_image": [
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_green",
+						"tap/mania_note_green",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white"
+					],
+					"ln_image": [
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_greenL",
+						"ln/mania_note_greenL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_greenH",
+						"head/mania_note_greenH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH"
+					]
+				},
+				"7K+1": {
+					"column_width": [70, 56,56,56,56,56,56,56],
+					"column_line_width": [1,0,0,0,0,0,0,0],
+					"tap_image": [
+						"tap/mania_note_green",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white",
+						"tap/mania_note_yellow",
+						"tap/mania_note_white",
+						"tap/mania_note_blue",
+						"tap/mania_note_white"
+					],
+					"ln_image": [
+						"ln/mania_note_greenL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_yellowL",
+						"ln/mania_note_whiteL",
+						"ln/mania_note_blueL",
+						"ln/mania_note_whiteL"
+					],
+					"ln_head_image": [
+						"head/mania_note_greenH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH",
+						"head/mania_note_yellowH",
+						"head/mania_note_whiteH",
+						"head/mania_note_blueH",
+						"head/mania_note_whiteH"
+					]
+				}
+			}
+		},
+		"9": {
+			
+		}
+	}
+}
