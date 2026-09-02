@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 GlobalSettings="*uid://b0pvmk4u26d62"
 GameSession="*uid://djd4s6xyfi517"
+SkinManager="*uid://x0jlhuotgo2d"
 
 [display]
 

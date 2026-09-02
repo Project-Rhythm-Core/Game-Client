@@ -1,0 +1,16 @@
+{
+	"1": ["default"],
+	"2": ["default"],
+	"3": ["default"],
+	"4": ["default"],
+	"5": ["default"],
+	"6": ["default"],
+	"7": ["default"],
+	"8": ["default", "7+1K"],
+	"9": ["default"],
+	"10": ["default"],
+	"12": ["10K2S"],
+	"14": ["DP", "EZ2AC"],
+	"16": ["DP", "EZ2AC"],
+	"18": ["10K8K", "9K9K"]
+}
