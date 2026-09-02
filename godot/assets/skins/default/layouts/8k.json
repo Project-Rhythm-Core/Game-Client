@@ -5,10 +5,10 @@
 	"judgement_line": true,
 	"score_position": 280,
 	"combo_position": 192,
-	"style": {
+	"styles": {
 		"default": {
 			"column_width": [90,90,90,90,90,90,90,90],
-			"column_line_width": [0,0,0,1,0,0,0,0],
+			"column_line_width": [0,0,0,1,0,0,0],
 			"tap_image": [
 				"notes/green",
 				"notes/white",
@@ -17,7 +17,7 @@
 				"notes/white",
 				"notes/blue",
 				"notes/white",
-				"notes/green",
+				"notes/green"
 			],
 			"ln_image": [
 				"notes/greenL",
@@ -37,12 +37,12 @@
 				"notes/whiteH",
 				"notes/blueH",
 				"notes/whiteH",
-				"notes/greenH",
+				"notes/greenH"
 			]
 		},
 		"7+1K": {
 			"column_width": [90,90,90,90,90,90,90,90],
-			"column_line_width": [1,0,0,0,0,0,0,0],
+			"column_line_width": [1,0,0,0,0,0,0],
 			"tap_image": [
 				"notes/green",
 				"notes/white",
@@ -51,7 +51,7 @@
 				"notes/yellow",
 				"notes/white",
 				"notes/blue",
-				"notes/white",
+				"notes/white"
 			],
 			"ln_image": [
 				"notes/greenL",
@@ -61,7 +61,7 @@
 				"notes/yellowL",
 				"notes/whiteL",
 				"notes/blueL",
-				"notes/whiteL",
+				"notes/whiteL"
 			],
 			"ln_head_image": [
 				"notes/greenH",
@@ -71,7 +71,7 @@
 				"notes/yellowH",
 				"notes/whiteH",
 				"notes/blueH",
-				"notes/whiteH",
+				"notes/whiteH"
 			]
 		}
 	}

@@ -8,7 +8,7 @@
 	"styles": {
 		"DP": {
 			"column_width": [90,90,90,90,90,90,90,90, 90,90,90,90,90,90,90,90],
-			"column_line_width": [1,0,0,0, 0,0,0,1, 0,0,0,0, 0,1,0],
+			"column_line_width": [1,0,0,0, 0,0,0,1, 0,0,0,0, 0,0,1],
 			"tap_image": [
 				"notes/green",
 				"notes/white",

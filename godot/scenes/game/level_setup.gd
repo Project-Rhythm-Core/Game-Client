@@ -21,6 +21,8 @@ func _ready() -> void:
 	key_count = chart["key_count"]
 	variant = GlobalSettings.get_preferred_variant(key_count)
 	
+	SkinManager.load_layout(key_count, variant)
+	
 	note_manager.setup(
 		chart,
 		key_count,
@@ -59,8 +61,3 @@ func _setup_audio() -> void:
 			audio_stream = AudioStreamOggVorbis.load_from_file(audio_path)
 
 	audio_player.stream = audio_stream
-
-func _setup_skin() -> void:
-	print("hola")
-	
-	# Pending when added skins

@@ -5,10 +5,10 @@
 	"judgement_line": true,
 	"score_position": 280,
 	"combo_position": 192,
-	"style": {
+	"styles": {
 		"default": {
 			"column_width": [90],
-			"column_line_width": [0],
+			"column_line_width": [],
 			"tap_image": [
 				"notes/white"
 			],
