@@ -4,7 +4,8 @@ extends Node2D
 @export var conductor: Conductor
 @export var x_offset: float = 0.0
 @export var beat: float = 0.0
-@export var judgment_line: Node2D
+@export var judgment_line: CanvasItem
+@export var column_width: float = 90.0
 
 @export var end_beat: float = -1.0
 
@@ -30,7 +31,15 @@ func update_beat(curr_beat: float) -> void:
 
 func set_note_texture(texture: Texture2D) -> void:
 	sprite.texture = texture
+	_scale_sprite_to_column_width()
 
+func _scale_sprite_to_column_width() -> void:
+	if sprite.texture == null:
+		return
+	var texture_width := sprite.texture.get_width()
+	if texture_width > 0:
+		var scale_factor: float = column_width / texture_width
+		sprite.scale = Vector2(scale_factor, scale_factor)
 func set_hold_body_texture(texture: Texture2D) -> void:
 	body_sprite.texture = texture
 	

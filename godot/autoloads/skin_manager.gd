@@ -37,7 +37,7 @@ func get_style(key_count: int, variant: String = "") -> Dictionary:
 	load_layout(key_count)
 	
 	var layout_data: Dictionary = default_skin["layout"].get(str(key_count), {})
-	var style_map: Dictionary = layout_data.get("style", {})
+	var style_map: Dictionary = layout_data.get("styles", {})
 	
 	var resolved_style: Dictionary
 	if variant != "" and style_map.has(variant):

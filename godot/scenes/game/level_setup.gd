@@ -3,6 +3,7 @@ extends Node2D
 @export var conductor: Conductor
 @export var note_manager: NoteManager
 @export var audio_player: AudioStreamPlayer
+@export var judgment_line: CanvasItem
 
 var chart: Dictionary
 var notes_by_column: Array = []
@@ -22,7 +23,26 @@ func _ready() -> void:
 	style = GlobalSettings.get_preferred_variant(key_count)
 	bindings = GlobalSettings.get_key_bindings(key_count, style)
 	
+	print("LEVEL_SETUP - bindings: ", bindings)
+	
 	var style_data: Dictionary = SkinManager.get_style(key_count, style)
+	var hit_position: float = (SkinManager
+	.default_skin["layout"][str(key_count)]
+	.get("hit_position", 900.0)
+	)
+	
+	var reference_height := 1080.0
+	var scale_factor := get_viewport_rect().size.y / reference_height
+	
+	judgment_line.position.y = hit_position * scale_factor
+	
+	var judgment_color := Color.WHITE
+	var judgment_thickness := 4.0
+	var stage_width := get_viewport_rect().size.x
+	
+	var generated_line = LineGenerator.create_horizontal_line(0, hit_position * scale_factor, stage_width, judgment_thickness, judgment_color)
+	add_child(generated_line)
+	judgment_line = generated_line
 	
 	note_manager.setup(
 		chart,

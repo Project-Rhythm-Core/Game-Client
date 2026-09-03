@@ -3,14 +3,14 @@
 [ext_resource type="Script" uid="uid://bg8f28lvhw15o" path="res://scenes/game/level_setup.gd" id="1_lfrn8"]
 [ext_resource type="Script" uid="uid://b5pom8nrumhd5" path="res://objects/conductor/conductor.gd" id="2_lfrn8"]
 [ext_resource type="Script" uid="uid://clrovn80cht3g" path="res://scripts/note_manager.gd" id="3_bdhmt"]
-[ext_resource type="Texture2D" uid="uid://cdbdehyo46r1s" path="res://objects/note/note.png" id="4_87uf6"]
 [ext_resource type="Script" uid="uid://bijp3avr8snle" path="res://scripts/pause_handler.gd" id="5_2a8rs"]
 
-[node name="Game" type="Node2D" unique_id=1185290124 node_paths=PackedStringArray("conductor", "note_manager", "audio_player")]
+[node name="Game" type="Node2D" unique_id=1185290124 node_paths=PackedStringArray("conductor", "note_manager", "audio_player", "judgment_line")]
 script = ExtResource("1_lfrn8")
 conductor = NodePath("Conductor")
 note_manager = NodePath("NoteManager")
 audio_player = NodePath("AudioStreamPlayer")
+judgment_line = NodePath("JudgmentLine")
 
 [node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=649715901]
 
@@ -24,7 +24,6 @@ script = ExtResource("3_bdhmt")
 judgment_line = NodePath("../JudgmentLine")
 
 [node name="JudgmentLine" type="Sprite2D" parent="." unique_id=739576659]
-texture = ExtResource("4_87uf6")
 
 [node name="PauseHandler" type="Node" parent="." unique_id=714190240]
 process_mode = 3

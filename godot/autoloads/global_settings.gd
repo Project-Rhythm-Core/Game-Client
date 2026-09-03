@@ -1,7 +1,7 @@
 extends Node
 
 const SETTINGS_PATH := "user://settings.json"
-const DEFAULT_SETTINGS_PATH := "res://assets/default_settings.json"
+const DEFAULT_SETTINGS_PATH := "res://assets/config/default_settings.json"
 
 var settings: Dictionary = {}
 
@@ -33,7 +33,11 @@ func save_settings() -> void:
 
 func get_key_bindings(key_count: int, variant: String = "") -> Array:
 	var key_count_str := str(key_count)
+	print("GET_KEY_BINDINGS - key_count_str: ", key_count_str)
+	print("GET_KEY_BINDINGS - settings: ", settings)
+	
 	var raw = settings.get("input", {}).get("key_bindings", {}).get(key_count_str, [])
+	print("GET_KEY_BINDINGS - raw: ", raw)
 
 	var result: Array = []
 	if raw is Array:

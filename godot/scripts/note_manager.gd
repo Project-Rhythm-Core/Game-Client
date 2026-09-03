@@ -8,7 +8,7 @@ const HIT_MARGIN_GOOD := 0.150
 const HIT_MARGIN_MISS := 0.300
 const TAIL_MARGIN_MULTIPLIER := 1.5
 
-@export var judgment_line: Node2D
+@export var judgment_line: CanvasItem
 
 var _conductor: Conductor
 var _bindings: Array = []
@@ -52,6 +52,17 @@ func setup(chart: Dictionary, key_count: int, bindings: Array, conductor: Conduc
 	for i in range(_key_count):
 		_notes_by_column[i] = []
 		_active_holds[i] = null
+		
+	var line_widths: Array = style_data.get("column_line_width", [])
+	var stage_height := get_viewport_rect().size.y
+	
+	for i in range(line_widths.size()):
+		var thickness: float = line_widths[i]
+		if thickness <= 0:
+			continue
+		var line_x: float = column_positions[i] + column_widths[i]
+		var line := LineGenerator.create_vertical_line(line_x, stage_height, thickness, Color.WHITE)
+		add_child(line)
 
 	var notes_data: Array = chart["notes"]
 
@@ -66,11 +77,14 @@ func setup(chart: Dictionary, key_count: int, bindings: Array, conductor: Conduc
 		if note == null:
 			push_error("NoteManager: no se pudo instanciar Note.")
 			return
-
+			
+		add_child(note)
+		
 		note.conductor = _conductor
 		note.beat = beat
 		note.x_offset = column_positions[column]
 		note.judgment_line = judgment_line
+		note.column_width = column_widths[column]
 		
 		if is_hold:
 			var end_beat := (end_time_ms / 1000.0) / _conductor.get_beat_duration()
@@ -94,7 +108,6 @@ func setup(chart: Dictionary, key_count: int, bindings: Array, conductor: Conduc
 		
 		note.update_beat(-100)
 
-		add_child(note)
 		_notes.append(note)
 		_notes_by_column[column].append(note)
 
@@ -115,9 +128,11 @@ func _process(_delta: float) -> void:
 
 func _input(event: InputEvent) -> void:
 	if not _ready_to_process:
+		print("Notemanager: _ready_to_process false")
 		return
 	if event is InputEventKey and not event.echo:
 		if event.pressed:
+			print("NoteManager: keypress detected")
 			_handle_key_input(event.physical_keycode)
 		else:
 			_handle_key_release(event.physical_keycode)
@@ -138,7 +153,7 @@ func _miss_old_notes(curr_beat: float) -> void:
 				
 			var delta := _get_note_delta(note, curr_beat)
 			if delta > HIT_MARGIN_GOOD:
-				print("Miss! (%.1f ms)" % (delta * 1000))
+				#print("Miss! (%.1f ms)" % (delta * 1000))
 				note.miss()
 				queue.remove_at(0)
 				_notes.erase(note)
@@ -159,6 +174,8 @@ func _check_active_holds(curr_beat: float) -> void:
 			_finish_active_hold(column, note)
 
 func _handle_key_input(physical_keycode: int) -> void:
+	print("physical_keycode recieved: ", physical_keycode)
+	print("_bindings", _bindings)
 	var column := _bindings.find(physical_keycode)
 	if column == -1:
 		return
