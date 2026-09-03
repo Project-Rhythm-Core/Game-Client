@@ -12,7 +12,7 @@ extends Node2D
 @onready var sprite: Sprite2D = $Sprite2D
 @onready var body_sprite: Sprite2D = $BodySprite
 
-var _speed: float = 1000.0
+var _speed: float = 1300.0
 var _movement_paused: bool = false
 var _song_time_delta: float = 0.0
 
@@ -50,15 +50,15 @@ func _process(_delta: float) -> void:
 
 func _update_position() -> void:
 	var head_y: float
-	
+
 	if is_hold and _head_judged:
 		head_y = judgment_line.position.y
 	else:
 		head_y = judgment_line.position.y + (_speed * _song_time_delta)
-		position.y = head_y
-		
+
+	position.y = head_y
 	position.x = x_offset
-	
+
 	if is_hold:
 		var tail_delta: float = ((_current_beat()) - end_beat) * conductor.get_beat_duration()
 		var tail_y = judgment_line.position.y + (_speed * tail_delta)
@@ -68,12 +68,21 @@ func _current_beat() -> float:
 	return beat + (_song_time_delta / conductor.get_beat_duration())
 
 func _update_body(head_y: float, tail_y: float) -> void:
+	if body_sprite.texture == null:
+		return
+		
 	var length: float = head_y - tail_y
-	body_sprite.position = Vector2(x_offset - body_sprite.texture.get_width() / 2.0 if body_sprite.texture else 0.0, tail_y)
+	var texture_width := body_sprite.texture.get_width()
+	var texture_height := body_sprite.texture.get_height()
 	
-	if body_sprite.texture and body_sprite.texture.get_height() > 0:
-		body_sprite.scale.y = max(length, 0.0) / body_sprite.texture.get_height()
-	body_sprite.scale.x = 1.0
+	if texture_width<= 0 or texture_height <= 0:
+		return
+	
+	var scale_x: float = column_width / texture_width
+	var scale_y: float = max(length, 0.0) / texture_height
+	
+	body_sprite.scale = Vector2(scale_x, scale_y)
+	body_sprite.position = Vector2(-(texture_width * scale_x) / 2.0, tail_y - head_y)
 	
 func hit() -> void:
 	if is_hold:

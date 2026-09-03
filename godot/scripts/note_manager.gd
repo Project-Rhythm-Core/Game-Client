@@ -77,8 +77,6 @@ func setup(chart: Dictionary, key_count: int, bindings: Array, conductor: Conduc
 		if note == null:
 			push_error("NoteManager: no se pudo instanciar Note.")
 			return
-			
-		add_child(note)
 		
 		note.conductor = _conductor
 		note.beat = beat
@@ -89,6 +87,8 @@ func setup(chart: Dictionary, key_count: int, bindings: Array, conductor: Conduc
 		if is_hold:
 			var end_beat := (end_time_ms / 1000.0) / _conductor.get_beat_duration()
 			note.end_beat = end_beat
+		
+		add_child(note)
 		
 		var relative_path: String = ""
 		if is_hold and column < hold_head_images.size():
@@ -128,11 +128,9 @@ func _process(_delta: float) -> void:
 
 func _input(event: InputEvent) -> void:
 	if not _ready_to_process:
-		print("Notemanager: _ready_to_process false")
 		return
 	if event is InputEventKey and not event.echo:
 		if event.pressed:
-			print("NoteManager: keypress detected")
 			_handle_key_input(event.physical_keycode)
 		else:
 			_handle_key_release(event.physical_keycode)
@@ -174,8 +172,6 @@ func _check_active_holds(curr_beat: float) -> void:
 			_finish_active_hold(column, note)
 
 func _handle_key_input(physical_keycode: int) -> void:
-	print("physical_keycode recieved: ", physical_keycode)
-	print("_bindings", _bindings)
 	var column := _bindings.find(physical_keycode)
 	if column == -1:
 		return
@@ -219,11 +215,14 @@ func _handle_key_release(physical_keycode: int) -> void:
 	
 	var curr_beat := _conductor.get_current_beat()
 	var tail_delta := _get_tail_delta(note, curr_beat)
-	
-	if tail_delta < -(HIT_MARGIN_MISS * TAIL_MARGIN_MULTIPLIER):
+
+	if tail_delta < 0.0:
+		# Released before the tail even reached the judgment line: like osu!stable,
+		# the LN keeps scrolling instead of despawning. It gets judged as a miss
+		# once its tail passes the late-hit window in _check_active_holds.
 		note.release_early()
 		return
-	
+
 	_finish_active_hold(column, note)
 
 func _finish_active_hold(column: int, note: Note) -> void:
