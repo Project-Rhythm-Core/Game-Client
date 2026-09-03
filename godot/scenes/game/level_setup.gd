@@ -7,7 +7,7 @@ extends Node2D
 var chart: Dictionary
 var notes_by_column: Array = []
 var key_count: int = 0
-var variant: String = ""
+var style: String = ""
 var bindings: Array
 
 # Game Setup
@@ -19,18 +19,17 @@ func _ready() -> void:
 	_setup_audio()
 	
 	key_count = chart["key_count"]
-	variant = GlobalSettings.get_preferred_variant(key_count)
+	style = GlobalSettings.get_preferred_variant(key_count)
+	bindings = GlobalSettings.get_key_bindings(key_count, style)
 	
-	SkinManager.load_layout(key_count, variant)
+	var style_data: Dictionary = SkinManager.get_style(key_count, style)
 	
 	note_manager.setup(
 		chart,
 		key_count,
-		GlobalSettings.get_key_bindings(
-			key_count,
-			variant
-			),
-		conductor
+		bindings,
+		conductor,
+		style_data
 		)
 	
 	await get_tree().create_timer(2.0).timeout
